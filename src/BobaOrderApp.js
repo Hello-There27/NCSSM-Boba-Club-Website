@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ShoppingCart, Plus, Minus, X, Clock, User, TrendingUp, Shield, Download, Eye, Lock } from 'lucide-react';
+import { supabase } from './supabase';
 
 const BobaOrderApp = () => {
   const [cart, setCart] = useState([]);
@@ -17,7 +18,7 @@ const BobaOrderApp = () => {
   const [showCheckout, setShowCheckout] = useState(false);
   const [customerName, setCustomerName] = useState('');
   
-  // Simulated total orders data - in real app this would come from backend
+  // Updated state management
   const [totalOrders, setTotalOrders] = useState({
     count: 0,
     totalValue: 0
@@ -29,10 +30,116 @@ const BobaOrderApp = () => {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
   const [orderCounter, setOrderCounter] = useState(1);
+  const [loading, setLoading] = useState(false);
   
-  const ADMIN_PASSWORD = "bobaadmin123"; // Change this to your desired password
+  const ADMIN_PASSWORD = "bobaadmin123";
   const MINIMUM_ORDERS = 20;
 
+  // Load orders and stats when component mounts
+  useEffect(() => {
+    loadOrdersFromDatabase();
+    loadOrderStats();
+  }, []);
+
+  // Load all orders from Supabase
+  const loadOrdersFromDatabase = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error loading orders:', error);
+        return;
+      }
+
+      setAllOrders(data || []);
+      
+      // Set next order counter
+      if (data && data.length > 0) {
+        const maxOrderNumber = Math.max(...data.map(order => order.order_number));
+        setOrderCounter(maxOrderNumber + 1);
+      }
+    } catch (error) {
+      console.error('Error loading orders:', error);
+    }
+  };
+
+  // Load order statistics
+  const loadOrderStats = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('quantity, price');
+
+      if (error) {
+        console.error('Error loading stats:', error);
+        return;
+      }
+
+      if (data) {
+        const count = data.reduce((sum, order) => sum + order.quantity, 0);
+        const totalValue = data.reduce((sum, order) => sum + order.price, 0);
+        setTotalOrders({ count, totalValue });
+      }
+    } catch (error) {
+      console.error('Error loading stats:', error);
+    }
+  };
+
+  // Save order to Supabase
+  const saveOrderToDatabase = async (orderData) => {
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .insert([{
+          order_number: orderData.orderNumber,
+          customer_name: orderData.customerName || 'Pending',
+          category: orderData.category,
+          flavor: orderData.flavor,
+          size: orderData.size,
+          ice_level: orderData.iceLevel,
+          sugar_level: orderData.sugarLevel,
+          toppings: orderData.toppings,
+          crystal_boba: orderData.crystalBoba,
+          quantity: orderData.quantity,
+          price: orderData.price,
+          payment_method: orderData.paymentMethod || 'Not Selected'
+        }])
+        .select();
+
+      if (error) {
+        console.error('Error saving order:', error);
+        alert('Failed to save order. Please try again.');
+        return null;
+      }
+
+      return data[0];
+    } catch (error) {
+      console.error('Error saving order:', error);
+      alert('Something went wrong. Please try again.');
+      return null;
+    }
+  };
+
+  // Update order in database
+  const updateOrderInDatabase = async (orderId, updates) => {
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update(updates)
+        .eq('id', orderId);
+
+      if (error) {
+        console.error('Error updating order:', error);
+      }
+    } catch (error) {
+      console.error('Error updating order:', error);
+    }
+  };
+
+  // Your existing drink categories and other constants remain the same
   const drinkCategories = {
     'Classic Milk Tea': {
       price: 3.49,
@@ -134,9 +241,9 @@ const BobaOrderApp = () => {
   const iceLevels = ['No Ice', '25%', '50%', '75%', '100%'];
   const sugarLevels = ['0%', '30%', '50%', '70%', '100%'];
 
-  // Check if ordering is currently open (disabled for testing)
+  // Your existing helper functions remain the same
   const isOrderingOpen = () => {
-    return true; // Always open for testing
+    return true;
   };
 
   const getOrderingStatus = () => {
@@ -163,7 +270,6 @@ const BobaOrderApp = () => {
     
     let basePrice = categoryInfo.price;
     
-    // Calculate toppings price
     let toppingsPrice = 0;
     item.toppings.forEach(topping => {
       if (topping.includes('+30¢') || topping === 'Crystal Boba (+30¢)') {
@@ -171,7 +277,7 @@ const BobaOrderApp = () => {
       } else if (topping.includes('+25¢')) {
         toppingsPrice += 0.25;
       } else {
-        toppingsPrice += 0.60; // Regular toppings
+        toppingsPrice += 0.60;
       }
     });
     
@@ -180,67 +286,83 @@ const BobaOrderApp = () => {
     
     const subtotal = (basePrice + toppingsPrice + crystalBobaPrice + sizeUpgrade) * item.quantity;
     
-    // Apply 20% discount
     return subtotal * 0.8;
   };
 
-  const addToCart = () => {
+  // Updated addToCart function
+  const addToCart = async () => {
     if (!currentOrder.category || !currentOrder.flavor) {
       alert('Please select a drink category and flavor');
       return;
     }
     
+    setLoading(true);
+    
     const orderWithId = {
       ...currentOrder,
       id: Date.now(),
       price: calculateItemPrice(currentOrder),
-      orderNumber: orderCounter
-    };
-    
-    setCart([...cart, orderWithId]);
-    
-    // Add to all orders for admin tracking
-    setAllOrders(prev => [...prev, {
-      ...orderWithId,
+      orderNumber: orderCounter,
       customerName: 'Pending',
       paymentMethod: 'Not Selected',
       timestamp: new Date().toISOString(),
       paid: false,
       pickedUp: false
-    }]);
+    };
     
-    // Update total orders simulation
-    setTotalOrders(prev => ({
-      count: prev.count + currentOrder.quantity,
-      totalValue: prev.totalValue + orderWithId.price
-    }));
+    // Save to database first
+    const savedOrder = await saveOrderToDatabase(orderWithId);
     
-    setOrderCounter(prev => prev + 1);
-    
-    setCurrentOrder({
-      category: '',
-      flavor: '',
-      size: 'Regular',
-      iceLevel: '50%',
-      sugarLevel: '50%',
-      toppings: [],
-      crystalBoba: false,
-      quantity: 1
-    });
-  };
-
-  const removeFromCart = (id) => {
-    const itemToRemove = cart.find(item => item.id === id);
-    if (itemToRemove) {
+    if (savedOrder) {
+      // Update local state
+      setCart([...cart, { ...orderWithId, id: savedOrder.id }]);
+      setAllOrders(prev => [savedOrder, ...prev]);
+      
+      // Update stats
       setTotalOrders(prev => ({
-        count: prev.count - itemToRemove.quantity,
-        totalValue: Math.max(0, prev.totalValue - itemToRemove.price)
+        count: prev.count + currentOrder.quantity,
+        totalValue: prev.totalValue + orderWithId.price
       }));
       
-      // Remove from all orders as well
-      setAllOrders(prev => prev.filter(order => order.id !== id));
+      setOrderCounter(prev => prev + 1);
+      
+      // Reset form
+      setCurrentOrder({
+        category: '',
+        flavor: '',
+        size: 'Regular',
+        iceLevel: '50%',
+        sugarLevel: '50%',
+        toppings: [],
+        crystalBoba: false,
+        quantity: 1
+      });
     }
-    setCart(cart.filter(item => item.id !== id));
+    
+    setLoading(false);
+  };
+
+  // Updated removeFromCart function
+  const removeFromCart = async (id) => {
+    const itemToRemove = cart.find(item => item.id === id);
+    if (itemToRemove) {
+      // Remove from database
+      const { error } = await supabase
+        .from('orders')
+        .delete()
+        .eq('id', id);
+
+      if (!error) {
+        // Update local state
+        setTotalOrders(prev => ({
+          count: prev.count - itemToRemove.quantity,
+          totalValue: Math.max(0, prev.totalValue - itemToRemove.price)
+        }));
+        
+        setAllOrders(prev => prev.filter(order => order.id !== id));
+        setCart(cart.filter(item => item.id !== id));
+      }
+    }
   };
 
   const updateQuantity = (change) => {
@@ -264,11 +386,11 @@ const BobaOrderApp = () => {
   };
 
   const getSalesTax = () => {
-    return getSubtotal() * 0.075; // 7.5% tax rate
+    return getSubtotal() * 0.075;
   };
 
   const getFinalTotal = () => {
-    return Math.floor((getSubtotal() + getSalesTax()) * 100) / 100; // Round down to nearest cent
+    return Math.floor((getSubtotal() + getSalesTax()) * 100) / 100;
   };
 
   const handleAdminClick = () => {
@@ -286,18 +408,64 @@ const BobaOrderApp = () => {
     }
   };
 
-  const toggleOrderStatus = (orderId, field) => {
-    setAllOrders(prev => 
-      prev.map(order => 
-        order.id === orderId 
-          ? { ...order, [field]: !order[field] }
-          : order
-      )
-    );
+  // Updated toggleOrderStatus function - deletes order when both paid and picked up
+  const toggleOrderStatus = async (orderId, field) => {
+    const order = allOrders.find(o => o.id === orderId);
+    if (order) {
+      const newValue = !order[field];
+      const updatedOrder = { ...order, [field]: newValue };
+      
+      // Check if both paid and picked up will be true after this update
+      const shouldDelete = updatedOrder.paid && updatedOrder.picked_up;
+      
+      if (shouldDelete) {
+        // Delete order completely from database
+        try {
+          const { error } = await supabase
+            .from('orders')
+            .delete()
+            .eq('id', orderId);
+
+          if (error) {
+            console.error('Error deleting order:', error);
+            alert('Failed to delete order');
+            return;
+          }
+
+          // Remove from local state
+          setAllOrders(prev => prev.filter(o => o.id !== orderId));
+          
+          // Update total orders count (subtract this order's quantity and price)
+          setTotalOrders(prev => ({
+            count: Math.max(0, prev.count - order.quantity),
+            totalValue: Math.max(0, prev.totalValue - order.price)
+          }));
+          
+          console.log(`Order #${order.order_number} completed and removed from database`);
+          
+        } catch (error) {
+          console.error('Error deleting order:', error);
+          alert('Failed to delete completed order');
+        }
+      } else {
+        // Just update the field in database
+        await updateOrderInDatabase(orderId, { [field]: newValue });
+        
+        // Update local state
+        setAllOrders(prev => 
+          prev.map(order => 
+            order.id === orderId 
+              ? { ...order, [field]: newValue }
+              : order
+          )
+        );
+      }
+    }
   };
 
   const getVisibleOrders = () => {
-    return allOrders.filter(order => !(order.paid && order.pickedUp));
+    // Since completed orders are now deleted, just return all orders
+    return allOrders;
   };
 
   const PaymentInfo = () => {
@@ -320,7 +488,6 @@ const BobaOrderApp = () => {
     );
   };
 
-  // Export to CSV function
   const exportToCSV = () => {
     const visibleOrders = getVisibleOrders();
     if (visibleOrders.length === 0) {
@@ -345,29 +512,30 @@ const BobaOrderApp = () => {
     ];
 
     const csvData = visibleOrders.map(order => {
-      // Separate toppings by type
       const regularToppings = [];
       const specialToppings = [];
-      let hasCrystalBoba = order.crystalBoba;
+      let hasCrystalBoba = order.crystal_boba;
 
-      order.toppings.forEach(topping => {
-        if (topping.includes('+25¢')) {
-          specialToppings.push(topping);
-        } else if (topping.includes('+30¢') || topping === 'Crystal Boba (+30¢)') {
-          hasCrystalBoba = true;
-        } else {
-          regularToppings.push(topping);
-        }
-      });
+      if (order.toppings) {
+        order.toppings.forEach(topping => {
+          if (topping.includes('+25¢')) {
+            specialToppings.push(topping);
+          } else if (topping.includes('+30¢') || topping === 'Crystal Boba (+30¢)') {
+            hasCrystalBoba = true;
+          } else {
+            regularToppings.push(topping);
+          }
+        });
+      }
 
       return [
-        order.orderNumber,
-        order.customerName || 'Pending',
+        order.order_number,
+        order.customer_name || 'Pending',
         order.category,
         order.flavor,
         order.size,
-        order.iceLevel,
-        order.sugarLevel,
+        order.ice_level,
+        order.sugar_level,
         regularToppings[0] || '',
         regularToppings[1] || '',
         specialToppings[0] || '',
@@ -392,7 +560,6 @@ const BobaOrderApp = () => {
     document.body.removeChild(link);
   };
 
-  // Password Modal Component
   const PasswordModal = () => {
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -433,7 +600,6 @@ const BobaOrderApp = () => {
     );
   };
 
-  // Admin Mode Component
   const AdminPanel = () => {
     const visibleOrders = getVisibleOrders();
     
@@ -462,7 +628,6 @@ const BobaOrderApp = () => {
           </div>
         </div>
 
-        {/* Statistics */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <div className="bg-blue-50 p-6 rounded-lg border border-blue-200">
             <h3 className="text-lg font-semibold text-blue-800">Active Orders</h3>
@@ -478,10 +643,14 @@ const BobaOrderApp = () => {
           </div>
         </div>
 
-        {/* Orders Table */}
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
           <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
-            <h2 className="text-xl font-semibold text-gray-800">Active Orders ({visibleOrders.length})</h2>
+            <h2 className="text-xl font-semibold text-gray-800">
+              Active Orders ({visibleOrders.length})
+              <span className="text-sm font-normal text-gray-600 ml-2">
+                (Completed orders are automatically removed)
+              </span>
+            </h2>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -509,20 +678,20 @@ const BobaOrderApp = () => {
                   visibleOrders.map((order) => (
                     <tr key={order.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        #{order.orderNumber}
+                        #{order.order_number}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {order.customerName}
+                        {order.customer_name}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         <div className="font-medium">{order.flavor}</div>
                         <div className="text-gray-500">{order.category}</div>
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-900">
-                        <div>{order.size} | Ice: {order.iceLevel} | Sugar: {order.sugarLevel}</div>
-                        {(order.toppings.length > 0 || order.crystalBoba) && (
+                        <div>{order.size} | Ice: {order.ice_level} | Sugar: {order.sugar_level}</div>
+                        {((order.toppings && order.toppings.length > 0) || order.crystal_boba) && (
                           <div className="text-gray-500 text-xs">
-                            +{[...order.toppings, ...(order.crystalBoba ? ['Crystal Boba'] : [])].join(', ')}
+                            +{[...(order.toppings || []), ...(order.crystal_boba ? ['Crystal Boba'] : [])].join(', ')}
                           </div>
                         )}
                       </td>
@@ -534,12 +703,12 @@ const BobaOrderApp = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         <span className={`px-2 py-1 text-xs rounded-full ${
-                          order.paymentMethod === 'venmo' ? 'bg-blue-100 text-blue-800' :
-                          order.paymentMethod === 'zelle' ? 'bg-green-100 text-green-800' :
-                          order.paymentMethod === 'cash' ? 'bg-yellow-100 text-yellow-800' :
+                          order.payment_method === 'venmo' ? 'bg-blue-100 text-blue-800' :
+                          order.payment_method === 'zelle' ? 'bg-green-100 text-green-800' :
+                          order.payment_method === 'cash' ? 'bg-yellow-100 text-yellow-800' :
                           'bg-gray-100 text-gray-800'
                         }`}>
-                          {order.paymentMethod === 'Not Selected' ? 'Pending' : order.paymentMethod}
+                          {order.payment_method === 'Not Selected' ? 'Pending' : order.payment_method}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -556,8 +725,8 @@ const BobaOrderApp = () => {
                           <label className="flex items-center">
                             <input
                               type="checkbox"
-                              checked={order.pickedUp}
-                              onChange={() => toggleOrderStatus(order.id, 'pickedUp')}
+                              checked={order.picked_up}
+                              onChange={() => toggleOrderStatus(order.id, 'picked_up')}
                               className="mr-2 rounded"
                             />
                             <span className="text-xs">Picked Up</span>
@@ -565,7 +734,7 @@ const BobaOrderApp = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {new Date(order.timestamp).toLocaleString()}
+                        {new Date(order.created_at).toLocaleString()}
                       </td>
                     </tr>
                   ))
@@ -693,16 +862,28 @@ const BobaOrderApp = () => {
         </div>
 
         <button
-          onClick={() => {
+          onClick={async () => {
             if (!customerName.trim()) {
               alert('Please enter your name');
               return;
             }
             
-            // Update all orders with customer info
+            setLoading(true);
+            
+            // Update all cart orders with customer info in database
+            const updatePromises = cart.map(cartItem => 
+              updateOrderInDatabase(cartItem.id, {
+                customer_name: customerName,
+                payment_method: paymentMethod
+              })
+            );
+            
+            await Promise.all(updatePromises);
+            
+            // Update local state
             const updatedOrders = allOrders.map(order => 
               cart.some(cartItem => cartItem.id === order.id) 
-                ? { ...order, customerName, paymentMethod }
+                ? { ...order, customer_name: customerName, payment_method: paymentMethod }
                 : order
             );
             setAllOrders(updatedOrders);
@@ -711,11 +892,12 @@ const BobaOrderApp = () => {
             setCart([]);
             setCustomerName('');
             setShowCheckout(false);
+            setLoading(false);
           }}
-          disabled={cart.length === 0 || !customerName.trim()}
+          disabled={cart.length === 0 || !customerName.trim() || loading}
           className="w-full bg-purple-600 text-white py-4 rounded-lg font-medium hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
         >
-          Confirm Order - ${getFinalTotal().toFixed(2)}
+          {loading ? 'Processing...' : `Confirm Order - ${getFinalTotal().toFixed(2)}`}
         </button>
         
         <p className="text-center text-sm text-gray-500 mt-4">
@@ -758,7 +940,6 @@ const BobaOrderApp = () => {
         </div>
       </div>
 
-      {/* Minimum Orders Alert */}
       <div className={`mb-6 p-4 rounded-lg border ${
         totalOrders.count >= MINIMUM_ORDERS 
           ? 'bg-green-100 border-green-200' 
@@ -797,7 +978,6 @@ const BobaOrderApp = () => {
         </div>
       </div>
 
-      {/* Total Orders Counter */}
       <div className="mb-6 p-4 bg-gradient-to-r from-purple-100 to-pink-100 rounded-lg border border-purple-200">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -816,7 +996,6 @@ const BobaOrderApp = () => {
       </div>
 
       <div className="space-y-6">
-        {/* Drink Category Selection */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Category * <span className="text-purple-600 text-xs">(All prices include 20% discount)</span>
@@ -835,7 +1014,6 @@ const BobaOrderApp = () => {
           </select>
         </div>
 
-        {/* Flavor Selection */}
         {currentOrder.category && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -854,7 +1032,6 @@ const BobaOrderApp = () => {
           </div>
         )}
 
-        {/* Size Selection */}
         {currentOrder.category && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -881,7 +1058,6 @@ const BobaOrderApp = () => {
           </div>
         )}
 
-        {/* Ice Level */}
         {currentOrder.category && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -905,7 +1081,6 @@ const BobaOrderApp = () => {
           </div>
         )}
 
-        {/* Sugar Level */}
         {currentOrder.category && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -929,7 +1104,6 @@ const BobaOrderApp = () => {
           </div>
         )}
 
-        {/* Toppings */}
         {currentOrder.category && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -953,7 +1127,6 @@ const BobaOrderApp = () => {
           </div>
         )}
 
-        {/* Quantity */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Quantity
@@ -975,17 +1148,15 @@ const BobaOrderApp = () => {
           </div>
         </div>
 
-        {/* Add to Cart Button */}
         <button
           onClick={addToCart}
-          disabled={!currentOrder.category || !currentOrder.flavor}
+          disabled={!currentOrder.category || !currentOrder.flavor || loading}
           className="w-full bg-purple-600 text-white py-4 rounded-lg font-medium hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
         >
-          Add to Cart - ${currentOrder.category && currentOrder.flavor ? calculateItemPrice(currentOrder).toFixed(2) : '0.00'}
+          {loading ? 'Adding...' : `Add to Cart - ${currentOrder.category && currentOrder.flavor ? calculateItemPrice(currentOrder).toFixed(2) : '0.00'}`}
         </button>
       </div>
 
-      {/* Cart Preview */}
       {cart.length > 0 && (
         <div className="mt-8 p-4 bg-gray-50 rounded-lg">
           <h3 className="font-medium text-gray-800 mb-2">Cart Preview ({cart.length} items):</h3>
