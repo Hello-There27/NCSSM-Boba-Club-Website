@@ -1,12 +1,49 @@
 import React, { useState, useEffect } from 'react';
 import { ShoppingCart, Plus, Minus, X, Clock, User, TrendingUp, Shield, Download, Eye, Lock } from 'lucide-react';
-import { supabase } from './supabase';
+
+// Mock Supabase for demo - replace with your actual Supabase client
+const supabase = {
+  from: (table) => ({
+    select: (columns) => ({
+      order: (column, options) => ({
+        then: (callback) => {
+          // Mock data for demo
+          const mockOrders = [];
+          callback({ data: mockOrders, error: null });
+        }
+      })
+    }),
+    insert: (data) => ({
+      select: () => ({
+        then: (callback) => {
+          const insertedData = data.map((item, index) => ({ ...item, id: Date.now() + index }));
+          callback({ data: insertedData, error: null });
+        }
+      })
+    }),
+    update: (data) => ({
+      eq: (column, value) => ({
+        then: (callback) => {
+          callback({ error: null });
+        }
+      })
+    }),
+    delete: () => ({
+      eq: (column, value) => ({
+        then: (callback) => {
+          callback({ error: null });
+        }
+      })
+    })
+  })
+};
 
 const BobaOrderApp = () => {
   const [cart, setCart] = useState([]);
   const [currentOrder, setCurrentOrder] = useState({
     category: '',
     flavor: '',
+    teaBase: '', // New field for tea base
     size: 'Regular',
     iceLevel: '50%',
     sugarLevel: '50%',
@@ -41,32 +78,54 @@ const BobaOrderApp = () => {
     loadOrderStats();
   }, []);
 
+  // Tea base is optional for all drinks
+  const showTeaBaseOption = (category) => {
+    return category !== ''; // Show for any selected category
+  };
+
+  // Helper function to check if tea base is required (not used but keeping for consistency)
+  const requiresTeaBase = (category) => {
+    return false; // Tea base is optional for all drinks
+  };
+
+  // Available tea bases
+  const teaBases = ['Black Tea', 'Green Tea'];
+
   // Load all orders from Supabase
   const loadOrdersFromDatabase = async () => {
     try {
+      console.log('Loading orders from Supabase...');
+      
       const { data, error } = await supabase
         .from('orders')
         .select('*')
         .order('created_at', { ascending: false });
 
+      console.log('Supabase response:', { data, error });
+
       if (error) {
         console.error('Error loading orders:', error);
+        alert(`Database error: ${error.message}. Please check your Supabase setup.`);
         return;
       }
 
-      setAllOrders(data || []);
+      // Reassign order numbers sequentially
+      const ordersWithSequentialNumbers = (data || []).map((order, index) => ({
+        ...order,
+        order_number: index + 1
+      }));
+
+      setAllOrders(ordersWithSequentialNumbers);
       
       // Set next order counter
-      if (data && data.length > 0) {
-        const maxOrderNumber = Math.max(...data.map(order => order.order_number));
-        setOrderCounter(maxOrderNumber + 1);
-      }
+      setOrderCounter((ordersWithSequentialNumbers.length || 0) + 1);
     } catch (error) {
       console.error('Error loading orders:', error);
+      alert(`Connection error: ${error.message}. Please check your internet connection and Supabase configuration.`);
     }
   };
 
-  // Load order statistics
+  // Load order statistics from Supabase
   const loadOrderStats = async () => {
     try {
       const { data, error } = await supabase
@@ -88,42 +147,60 @@ const BobaOrderApp = () => {
     }
   };
 
+  // Reassign order numbers sequentially
+  const reassignOrderNumbers = (orders) => {
+    return orders.map((order, index) => ({
+      ...order,
+      order_number: index + 1
+    }));
+  };
+
   // Save order to Supabase
   const saveOrderToDatabase = async (orderData) => {
     try {
+      console.log('Attempting to save order:', orderData);
+      
+      const orderToInsert = {
+        order_number: orderData.orderNumber,
+        customer_name: orderData.customerName || 'Pending',
+        category: orderData.category,
+        flavor: orderData.flavor,
+        tea_base: orderData.teaBase || null, // New field
+        size: orderData.size,
+        ice_level: orderData.iceLevel,
+        sugar_level: orderData.sugarLevel,
+        toppings: orderData.toppings,
+        crystal_boba: orderData.crystalBoba,
+        quantity: orderData.quantity,
+        price: orderData.price,
+        payment_method: orderData.paymentMethod || 'Not Selected'
+      };
+
+      console.log('Data to insert:', orderToInsert);
+
       const { data, error } = await supabase
         .from('orders')
-        .insert([{
-          order_number: orderData.orderNumber,
-          customer_name: orderData.customerName || 'Pending',
-          category: orderData.category,
-          flavor: orderData.flavor,
-          size: orderData.size,
-          ice_level: orderData.iceLevel,
-          sugar_level: orderData.sugarLevel,
-          toppings: orderData.toppings,
-          crystal_boba: orderData.crystalBoba,
-          quantity: orderData.quantity,
-          price: orderData.price,
-          payment_method: orderData.paymentMethod || 'Not Selected'
-        }])
+        .insert([orderToInsert])
         .select();
 
+      console.log('Supabase insert response:', { data, error });
+
       if (error) {
-        console.error('Error saving order:', error);
-        alert('Failed to save order. Please try again.');
+        console.error('Supabase error details:', error);
+        alert(`Failed to save order: ${error.message}`);
         return null;
       }
 
+      console.log('Order saved successfully:', data[0]);
       return data[0];
     } catch (error) {
-      console.error('Error saving order:', error);
-      alert('Something went wrong. Please try again.');
+      console.error('Caught error while saving:', error);
+      alert(`Something went wrong: ${error.message}`);
       return null;
     }
   };
 
-  // Update order in database
+  // Update order in Supabase
   const updateOrderInDatabase = async (orderId, updates) => {
     try {
       const { error } = await supabase
@@ -143,11 +220,11 @@ const BobaOrderApp = () => {
   const drinkCategories = {
     'Classic Milk Tea': {
       price: 3.49,
-      flavors: ['Classic (Black Tea only)', 'Jasmine (Green Tea only)']
+      flavors: ['Classic', 'Jasmine']
     },
     'Other Tea': {
       price: 3.35,
-      flavors: ['Classic Tea (Black Tea only)', 'Jasmine Tea (Green Tea only)']
+      flavors: ['Classic Tea', 'Jasmine Tea']
     },
     'Milk Tea': {
       price: 3.95,
@@ -330,6 +407,7 @@ const BobaOrderApp = () => {
       setCurrentOrder({
         category: '',
         flavor: '',
+        teaBase: '',
         size: 'Regular',
         iceLevel: '50%',
         sugarLevel: '50%',
@@ -359,8 +437,18 @@ const BobaOrderApp = () => {
           totalValue: Math.max(0, prev.totalValue - itemToRemove.price)
         }));
         
-        setAllOrders(prev => prev.filter(order => order.id !== id));
+        // Remove from all orders and reassign numbers
+        const updatedOrders = allOrders.filter(order => order.id !== id);
+        const reorderedOrders = reassignOrderNumbers(updatedOrders);
+        setAllOrders(reorderedOrders);
+        
         setCart(cart.filter(item => item.id !== id));
+        
+        // Update order counter
+        setOrderCounter(reorderedOrders.length + 1);
+      } else {
+        console.error('Error removing order:', error);
+        alert(`Failed to remove order: ${error.message}`);
       }
     }
   };
@@ -408,7 +496,7 @@ const BobaOrderApp = () => {
     }
   };
 
-  // Updated toggleOrderStatus function - deletes order when both paid and picked up
+  // Updated toggleOrderStatus function - deletes order when both paid and picked up and reassigns numbers
   const toggleOrderStatus = async (orderId, field) => {
     const order = allOrders.find(o => o.id === orderId);
     if (order) {
@@ -428,12 +516,14 @@ const BobaOrderApp = () => {
 
           if (error) {
             console.error('Error deleting order:', error);
-            alert('Failed to delete order');
+            alert(`Failed to delete order: ${error.message}`);
             return;
           }
 
-          // Remove from local state
-          setAllOrders(prev => prev.filter(o => o.id !== orderId));
+          // Remove from local state and reassign order numbers
+          const updatedOrders = allOrders.filter(o => o.id !== orderId);
+          const reorderedOrders = reassignOrderNumbers(updatedOrders);
+          setAllOrders(reorderedOrders);
           
           // Update total orders count (subtract this order's quantity and price)
           setTotalOrders(prev => ({
@@ -441,11 +531,14 @@ const BobaOrderApp = () => {
             totalValue: Math.max(0, prev.totalValue - order.price)
           }));
           
+          // Update order counter
+          setOrderCounter(reorderedOrders.length + 1);
+          
           console.log(`Order #${order.order_number} completed and removed from database`);
           
         } catch (error) {
           console.error('Error deleting order:', error);
-          alert('Failed to delete completed order');
+          alert(`Failed to delete completed order: ${error.message}`);
         }
       } else {
         // Just update the field in database
@@ -470,9 +563,9 @@ const BobaOrderApp = () => {
 
   const PaymentInfo = () => {
     const paymentDetails = {
-      venmo: { info: 'Pay via Venmo: @ananyaag', note: 'Include your order number in the note' },
-      zelle: { info: 'Pay via Zelle: boba.orders@email.com', note: 'Include your order number in the note' },
-      cash: { info: 'Pay with cash upon pickup', note: 'Have exact change ready' }
+      venmo: { info: 'Pay via Venmo', note: 'Indicate the payment is for Boba' },
+      zelle: { info: 'Pay via Zelle', note: 'Include the payment is for Boba' },
+      cash: { info: 'Pay with cash upon pickup', note: 'Keep in mind we have limited change and may not be able to compensate fully' }
     };
 
     const current = paymentDetails[paymentMethod];
@@ -500,6 +593,7 @@ const BobaOrderApp = () => {
       'Customer Name',
       'Drink Category',
       'Flavor',
+      'Tea Base',
       'Size',
       'Ice Level',
       'Sugar Level',
@@ -533,6 +627,7 @@ const BobaOrderApp = () => {
         order.customer_name || 'Pending',
         order.category,
         order.flavor,
+        order.tea_base || 'N/A',
         order.size,
         order.ice_level,
         order.sugar_level,
@@ -648,7 +743,7 @@ const BobaOrderApp = () => {
             <h2 className="text-xl font-semibold text-gray-800">
               Active Orders ({visibleOrders.length})
               <span className="text-sm font-normal text-gray-600 ml-2">
-                (Completed orders are automatically removed)
+                (Completed orders are automatically removed and numbers reassigned)
               </span>
             </h2>
           </div>
@@ -686,6 +781,9 @@ const BobaOrderApp = () => {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         <div className="font-medium">{order.flavor}</div>
                         <div className="text-gray-500">{order.category}</div>
+                        {order.tea_base && (
+                          <div className="text-xs text-blue-600">Tea Base: {order.tea_base}</div>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-900">
                         <div>{order.size} | Ice: {order.ice_level} | Sugar: {order.sugar_level}</div>
@@ -802,8 +900,8 @@ const BobaOrderApp = () => {
             onChange={(e) => setPaymentMethod(e.target.value)}
             className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
           >
-            <option value="venmo">Venmo (@ananyaag)</option>
-            <option value="zelle">Zelle (boba.orders@email.com)</option>
+            <option value="venmo">Venmo (TBD)</option>
+            <option value="zelle">Zelle (TBD)</option>
             <option value="cash">Cash (pay upon pickup)</option>
           </select>
           <div className="mt-2">
@@ -819,6 +917,9 @@ const BobaOrderApp = () => {
                 <div className="flex-1">
                   <h3 className="font-medium text-gray-900">{item.flavor}</h3>
                   <p className="text-sm text-gray-600">{item.category}</p>
+                  {item.teaBase && (
+                    <p className="text-sm text-blue-600">Tea Base: {item.teaBase}</p>
+                  )}
                   <p className="text-sm text-gray-500">
                     {item.size} | Ice: {item.iceLevel} | Sugar: {item.sugarLevel}
                   </p>
@@ -913,7 +1014,7 @@ const BobaOrderApp = () => {
       
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-purple-600">🧋 NCSSM Boba Club</h1>
+          <h1 className="text-3xl font-bold text-purple-600">🧋 NCSSM Quickly's Boba</h1>
           <div className="flex items-center gap-4 mt-2 text-sm text-gray-600">
             <div className="flex items-center gap-1">
               <Clock className="w-4 h-4" />
@@ -972,7 +1073,7 @@ const BobaOrderApp = () => {
           }`}>
             {totalOrders.count >= MINIMUM_ORDERS 
               ? 'Great! We have enough orders to place a bulk order.' 
-              : `We need ${MINIMUM_ORDERS - totalOrders.count} more orders to place a bulk order.`
+              : `We need ${MINIMUM_ORDERS - totalOrders.count} more orders to place a bulk order through Quickly's.`
             }
           </p>
         </div>
@@ -990,7 +1091,7 @@ const BobaOrderApp = () => {
           </div>
         </div>
         <div className="mt-2 flex justify-between items-center">
-          <span className="text-purple-700">Bulk Order Value:</span>
+          <span className="text-purple-700">Total Order Value:</span>
           <span className="text-lg font-semibold text-purple-800">${totalOrders.totalValue.toFixed(2)}</span>
         </div>
       </div>
@@ -1002,7 +1103,7 @@ const BobaOrderApp = () => {
           </label>
           <select
             value={currentOrder.category}
-            onChange={(e) => setCurrentOrder({ ...currentOrder, category: e.target.value, flavor: '' })}
+            onChange={(e) => setCurrentOrder({ ...currentOrder, category: e.target.value, flavor: '', teaBase: '' })}
             className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
           >
             <option value="">Select a category</option>
@@ -1032,6 +1133,39 @@ const BobaOrderApp = () => {
           </div>
         )}
 
+        {currentOrder.category && showTeaBaseOption(currentOrder.category) && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Tea Base <span className="text-gray-500 text-xs">(Optional - Select if Applicable)</span>
+            </label>
+            <div className="grid grid-cols-3 gap-3">
+              <button
+                onClick={() => setCurrentOrder({ ...currentOrder, teaBase: '' })}
+                className={`p-3 border rounded-lg text-center transition-colors ${
+                  currentOrder.teaBase === ''
+                    ? 'border-gray-500 bg-gray-50 text-gray-700'
+                    : 'border-gray-300 hover:border-gray-400'
+                }`}
+              >
+                <div className="font-medium">N/A</div>
+              </button>
+              {teaBases.map((base) => (
+                <button
+                  key={base}
+                  onClick={() => setCurrentOrder({ ...currentOrder, teaBase: base })}
+                  className={`p-3 border rounded-lg text-center transition-colors ${
+                    currentOrder.teaBase === base
+                      ? 'border-orange-500 bg-orange-50 text-orange-700'
+                      : 'border-gray-300 hover:border-orange-300'
+                  }`}
+                >
+                  <div className="font-medium">{base}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        
         {currentOrder.category && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1150,7 +1284,7 @@ const BobaOrderApp = () => {
 
         <button
           onClick={addToCart}
-          disabled={!currentOrder.category || !currentOrder.flavor || loading}
+          disabled={!currentOrder.category || !currentOrder.flavor || (requiresTeaBase(currentOrder.category) && !currentOrder.teaBase) || loading}
           className="w-full bg-purple-600 text-white py-4 rounded-lg font-medium hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
         >
           {loading ? 'Adding...' : `Add to Cart - ${currentOrder.category && currentOrder.flavor ? calculateItemPrice(currentOrder).toFixed(2) : '0.00'}`}
@@ -1162,7 +1296,10 @@ const BobaOrderApp = () => {
           <h3 className="font-medium text-gray-800 mb-2">Cart Preview ({cart.length} items):</h3>
           {cart.slice(-2).map((item) => (
             <div key={item.id} className="flex justify-between items-center text-sm text-gray-600 mb-1">
-              <span>{item.flavor} ({item.category}) x{item.quantity}</span>
+              <span>
+                {item.flavor} ({item.category})
+                {item.teaBase && ` - ${item.teaBase}`} x{item.quantity}
+              </span>
               <div className="flex items-center gap-2">
                 <span>${item.price.toFixed(2)}</span>
                 <button
