@@ -68,6 +68,7 @@ const BobaOrderApp = () => {
   const [passwordInput, setPasswordInput] = useState('');
   const [orderCounter, setOrderCounter] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
   
   const ADMIN_PASSWORD = "bobaadmin123";
   const MINIMUM_ORDERS = 20;
@@ -845,6 +846,99 @@ const BobaOrderApp = () => {
     );
   };
 
+  const AboutPage = () => {
+    return (
+      <div className="max-w-4xl mx-auto p-6 bg-white min-h-screen">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-3xl font-bold text-purple-600">Credits and Acknowledgments</h1>
+          <button
+            onClick={() => setShowAbout(false)}
+            className="p-2 hover:bg-gray-100 rounded-full"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="prose max-w-none space-y-6">
+          <div className="bg-purple-50 p-6 rounded-lg border border-purple-200">
+            <h2 className="text-2xl font-semibold text-purple-800 mb-4">Purpose</h2>
+            <p className="text-gray-700 leading-relaxed">
+              This website was created to streamline the boba tea ordering process for NCSSM students. 
+              By collecting and consolidating orders digitally we are able to simplify the full process 
+              to create an enjoyable experience for all.
+            </p>
+          </div>
+
+          <div className="bg-red-50 p-6 rounded-lg border border-red-200">
+            <h2 className="text-2xl font-semibold text-red-800 mb-4">Important Information</h2>
+            <ul className="list-disc list-inside space-y-2 text-gray-700">
+              <li>Orders are only accepted during designated time periods (Tuesdays & Wednesdays 8:30 AM - 1:30 PM)</li>
+              <li>All prices shown include the 20% bulk ordering discount</li>
+              <li>Payment must be completed before pickup</li>
+              <li>Orders are delivered to campus at approximately 4:45 PM on order days</li>
+              <li>Custom tea base selection is available for most drinks</li>
+            </ul>
+          </div>
+
+          <div className="bg-blue-50 p-6 rounded-lg border border-blue-200">
+            <h2 className="text-2xl font-semibold text-blue-800 mb-4">How It Works</h2>
+            <ul className="list-disc list-inside space-y-2 text-gray-700">
+              <li>Students place orders through this website during designated ordering periods</li>
+              <li>Orders are collected throughout ordering periods</li>
+              <li>Once the minimum is met, bulk orders are placed with Quickly's</li>
+              <li>Once orders are placed they are distributed by Boba Club leadership</li>
+              <li>All drinks include a 20% discount for NCSSM students</li>
+            </ul>
+          </div>
+
+          <div className="bg-green-50 p-6 rounded-lg border border-green-200">
+            <h2 className="text-2xl font-semibold text-green-800 mb-4">Features</h2>
+            <ul className="list-disc list-inside space-y-2 text-gray-700">
+              <li>Real-time order tracking and statistics</li>
+              <li>Ease of efficient distribution among students</li>
+              <li>Comprehensive drink menu with customization options</li>
+              <li>Automatic order completion and cleanup</li>
+            </ul>
+          </div>
+
+          <div className="bg-yellow-50 p-6 rounded-lg border border-yellow-200">
+            <h2 className="text-2xl font-semibold text-yellow-800 mb-4">Credits & Acknowledgments</h2>
+            <div className="space-y-3 text-gray-700">
+              <p>
+                <strong>Website Development:</strong> Built with React and Tailwind CSS, designed for optimal user experience and efficient order management.
+              </p>
+              <p>
+                <strong>Boba Supplier:</strong> Quickly's - providing high-quality boba tea and allowing bulk ordering discounts.
+              </p>
+              <p>
+                <strong>Student Contributions:</strong> To the NCSSM Boba Club (c/o 2026) for helping in distribution and troubleshooting.
+              </p>
+              <p>
+                <strong>Icons:</strong> Lucide React icon library for beautiful, consistent UI elements.
+              </p>
+            </div>
+          </div>
+
+          <div className="text-center pt-6 border-t border-gray-200">
+            <p className="text-gray-600">
+              Questions or suggestions? Contact the Boba Club officer team.
+            </p>
+            <p className="text-gray-600">
+              Website created by Muhilan Krishnan '26.
+            </p>
+            <p className="text-sm text-gray-500 mt-2">
+              Last updated: {new Date().toLocaleDateString()}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  if (showAbout) {
+    return <AboutPage />;
+  }
+
   if (isAdminMode) {
     return <AdminPanel />;
   }
@@ -1136,7 +1230,7 @@ const BobaOrderApp = () => {
         {currentOrder.category && showTeaBaseOption(currentOrder.category) && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Tea Base <span className="text-gray-500 text-xs">(Optional - Select if Applicable)</span>
+              Tea Base <span className="text-gray-500 text-xs">(Optional - leave blank for default)</span>
             </label>
             <div className="grid grid-cols-3 gap-3">
               <button
@@ -1147,7 +1241,7 @@ const BobaOrderApp = () => {
                     : 'border-gray-300 hover:border-gray-400'
                 }`}
               >
-                <div className="font-medium">N/A</div>
+                <div className="font-medium">Default</div>
               </button>
               {teaBases.map((base) => (
                 <button
@@ -1330,6 +1424,14 @@ const BobaOrderApp = () => {
           </div>
         </div>
       )}
+
+      {/* About Button - Fixed Position Bottom Left */}
+      <button
+        onClick={() => setShowAbout(true)}
+        className="fixed bottom-6 left-6 bg-gray-600 text-white px-4 py-2 rounded-full hover:bg-gray-700 transition-colors shadow-lg flex items-center gap-2 text-sm z-10"
+      >
+        About
+      </button>
     </div>
   );
 };
