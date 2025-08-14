@@ -1,16 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { ShoppingCart, Plus, Minus, X, Clock, User, TrendingUp, Shield, Download, Eye, Lock, Wifi, WifiOff } from 'lucide-react';
 
-// Replace this mock Supabase with your actual Supabase client
-// Uncomment and configure the lines below with your Supabase credentials:
-
-
+// Supabase client setup
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = 'https://ykwpsojpnfqwqtpxtccv.supabase.co'
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlrd3Bzb2pwbmZxd3F0cHh0Y2N2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM4NDkxMjEsImV4cCI6MjA2OTQyNTEyMX0.fRAUneAPz1a7krlsU7le7-g4Ub0pogfyqoeNOcGw1RE'
+const supabaseUrl = process.env.REACT_APP_SUPABASE_URL
+const supabaseKey = process.env.REACT_APP_SUPABASE_ANON_KEY
 const supabase = createClient(supabaseUrl, supabaseKey)
-
 
 const BobaOrderApp = () => {
   const [cart, setCart] = useState([]);
@@ -20,7 +16,7 @@ const BobaOrderApp = () => {
     teaBase: '', // New field for tea base
     size: 'Regular',
     iceLevel: '50%',
-    sugarLevel: '50%',
+    sugarLevel: '100%',
     toppings: [],
     crystalBoba: false,
     quantity: 1
@@ -55,34 +51,33 @@ const BobaOrderApp = () => {
     loadOrderStats();
   }, []);
 
-  // Test Supabase connection
   const testConnection = async () => {
     setConnectionStatus('testing');
+
+    if (!supabaseUrl || !supabaseKey) {
+      console.error('Missing environment variables.');
+      console.error('❌ Missing Supabase URL or anon key. Check your .env file.');
+      setConnectionStatus('disconnected');
+      return;
+    }
+
     try {
-      console.log('Testing Supabase connection...');
-      
-      // Try to connect to Supabase with a simple query
-      const { data, error } = await supabase
-        .from('orders')
-        .select('count(*)', { count: 'exact', head: true });
+      // Call the health_check RPC function
+      const { data, error } = await supabase.rpc('health_check');
 
       if (error) {
         console.error('Connection test failed:', error);
         setConnectionStatus('disconnected');
-        
-        if (error.message.includes('paused') || error.message.includes('inactive')) {
-          alert('⚠️ Supabase project appears to be paused. Please reactivate it in your Supabase dashboard.');
-        } else {
-          alert(`Database connection error: ${error.message}`);
-        }
+        console.error(`Database connection error: ${error.message}`);
       } else {
-        console.log('Connection test successful');
+        console.log('✅ Connected to Supabase. Health check result:', data);
         setConnectionStatus('connected');
+        console.error('✅ Successfully connected to the database!');
       }
-    } catch (error) {
-      console.error('Connection test error:', error);
+    } catch (err) {
+      console.error('Unexpected error:', err);
+      console.error(`Failed to connect to database: ${err.message}`);
       setConnectionStatus('disconnected');
-      alert(`Failed to connect to database: ${error.message}`);
     }
   };
 
@@ -113,7 +108,7 @@ const BobaOrderApp = () => {
 
       if (error) {
         console.error('Error loading orders:', error);
-        alert(`Database error: ${error.message}. Please check your Supabase setup.`);
+        console.error(`Database error: ${error.message}. Please check your Supabase setup.`);
         return;
       }
 
@@ -129,7 +124,7 @@ const BobaOrderApp = () => {
       setOrderCounter((ordersWithSequentialNumbers.length || 0) + 1);
     } catch (error) {
       console.error('Error loading orders:', error);
-      alert(`Connection error: ${error.message}. Please check your internet connection and Supabase configuration.`);
+      console.error(`Connection error: ${error.message}. Please check your internet connection and Supabase configuration.`);
     }
   };
 
@@ -195,7 +190,7 @@ const BobaOrderApp = () => {
 
       if (error) {
         console.error('Supabase error details:', error);
-        alert(`Failed to save order: ${error.message}`);
+        console.error(`Failed to save order: ${error.message}`);
         return null;
       }
 
@@ -887,41 +882,23 @@ const BobaOrderApp = () => {
             </ul>
           </div>
 
-          <div className="bg-green-50 p-6 rounded-lg border border-green-200">
-            <h2 className="text-2xl font-semibold text-green-800 mb-4">Features</h2>
-            <ul className="list-disc list-inside space-y-2 text-gray-700">
-              <li>Real-time order tracking and statistics</li>
-              <li>Admin panel for order management</li>
-              <li>CSV export for easy order processing</li>
-              <li>Multiple payment options (Venmo, Zelle, Cash)</li>
-              <li>Comprehensive drink menu with customization options</li>
-              <li>Automatic order completion and cleanup</li>
-            </ul>
-          </div>
-
           <div className="bg-yellow-50 p-6 rounded-lg border border-yellow-200">
             <h2 className="text-2xl font-semibold text-yellow-800 mb-4">Credits & Acknowledgments</h2>
             <div className="space-y-3 text-gray-700">
               <p>
-                <strong>Website Development:</strong> Built with React and Tailwind CSS, designed for optimal user experience and efficient order management.
+                <strong>Website Development:</strong> Built by the NCSSM Boba Club Officer Team 2026.
               </p>
               <p>
                 <strong>Boba Supplier:</strong> Quickly's - providing high-quality boba tea and allowing bulk ordering discounts.
               </p>
               <p>
-                <strong>Special Thanks:</strong> To the NCSSM community for supporting this initiative and making affordable boba accessible to students.
-              </p>
-              <p>
-                <strong>Icons:</strong> Lucide React icon library for beautiful, consistent UI elements.
-              </p>
-              <p>
-                <strong>Backend Infrastructure:</strong> Designed to work with Supabase for reliable data storage and real-time updates.
+                <strong>Special Thanks:</strong> To the NCSSM community for supporting the club and ordering, allowing us to bring high quality Boba to NCSSM.
               </p>
             </div>
           </div>
 
           <div className="bg-red-50 p-6 rounded-lg border border-red-200">
-            <h2 className="text-2xl font-semibold text-red-800 mb-4">Important Information</h2>
+            <h2 className="text-2xl font-semibent text-red-800 mb-4">Important Information</h2>
             <ul className="list-disc list-inside space-y-2 text-gray-700">
               <li>Orders are only accepted during designated time periods (Tuesdays & Wednesdays 8:30 AM - 1:30 PM)</li>
               <li>All prices shown include the 20% bulk ordering discount</li>
@@ -933,7 +910,10 @@ const BobaOrderApp = () => {
 
           <div className="text-center pt-6 border-t border-gray-200">
             <p className="text-gray-600">
-              Questions or suggestions? Contact the Boba Club organizers.
+              Questions or suggestions? Contact the Boba Club Officer Team.
+            </p>
+             <p className="text-gray-600">
+              Created by Muhilan Krishnan '26
             </p>
             <p className="text-sm text-gray-500 mt-2">
               Last updated: {new Date().toLocaleDateString()}
@@ -1126,27 +1106,6 @@ const BobaOrderApp = () => {
           </div>
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={testConnection}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
-              connectionStatus === 'connected' ? 'bg-green-600 text-white hover:bg-green-700' :
-              connectionStatus === 'disconnected' ? 'bg-red-600 text-white hover:bg-red-700' :
-              connectionStatus === 'testing' ? 'bg-yellow-600 text-white' :
-              'bg-gray-600 text-white hover:bg-gray-700'
-            }`}
-            disabled={connectionStatus === 'testing'}
-          >
-            {connectionStatus === 'connected' ? <Wifi className="w-4 h-4" /> :
-             connectionStatus === 'disconnected' ? <WifiOff className="w-4 h-4" /> :
-             connectionStatus === 'testing' ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> :
-             <Wifi className="w-4 h-4" />
-            }
-            {connectionStatus === 'connected' ? 'Connected' :
-             connectionStatus === 'disconnected' ? 'Disconnected' :
-             connectionStatus === 'testing' ? 'Testing...' :
-             'Test DB'
-            }
-          </button>
           <button
             onClick={handleAdminClick}
             className="flex items-center gap-2 bg-red-600 text-white px-3 py-2 rounded-lg hover:bg-red-700 transition-colors text-sm"
@@ -1460,7 +1419,6 @@ const BobaOrderApp = () => {
         onClick={() => setShowAbout(true)}
         className="fixed bottom-6 left-6 bg-gray-600 text-white px-4 py-2 rounded-full hover:bg-gray-700 transition-colors shadow-lg flex items-center gap-2 text-sm z-10"
       >
-        <span>ℹ️</span>
         About
       </button>
     </div>
