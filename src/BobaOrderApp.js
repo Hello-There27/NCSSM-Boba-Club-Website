@@ -1367,15 +1367,44 @@ const BobaOrderApp = () => {
         </div>
       </div>
 
-      {/* Add to Cart Button */}
-      <div className="mb-6">
-        <button
-          onClick={addToCart}
-          disabled={!currentOrder.category || !currentOrder.flavor || (requiresTeaBase(currentOrder.category) && !currentOrder.teaBase) || loading}
-          className="w-full bg-purple-600 text-white py-4 rounded-lg font-medium hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-        >
-          {loading ? 'Adding...' : `Add to Cart - ${currentOrder.category && currentOrder.flavor ? calculateItemPrice(currentOrder).toFixed(2) : '0.00'-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order #</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
-                  <th className="px-6 py-3 text
+{/* Add to Cart Button */}
+<div className="mb-6">
+  <button
+    onClick={addToCart}
+    disabled={
+      !currentOrder.category ||
+      !currentOrder.flavor ||
+      (requiresTeaBase(currentOrder.category) && !currentOrder.teaBase) ||
+      loading
+    }
+    className="w-full bg-purple-600 text-white py-4 rounded-lg font-medium hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+  >
+    {loading
+      ? 'Adding...'
+      : `Add to Cart - ${
+          currentOrder.category && currentOrder.flavor
+            ? calculateItemPrice(currentOrder).toFixed(2)
+            : '0.00'
+        }`}
+  </button>
+</div>
+
+{/* Table Header */}
+<table>
+  <thead>
+    <tr>
+      <th className="left text-xs font-medium text-gray-500 uppercase tracking-wider">
+        Order #
+      </th>
+      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+        Customer
+      </th>
+      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+        Item
+      </th>
+      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+        Details
+      </th>
+    </tr>
+  </thead>
+</table>
