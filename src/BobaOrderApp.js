@@ -1,49 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingCart, Plus, Minus, X, Clock, User, TrendingUp, Shield, Download, Eye, Lock } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, X, Clock, User, TrendingUp, Shield, Download, Eye, Lock, Wifi, WifiOff } from 'lucide-react';
 
-// Mock Supabase for demo - replace with your actual Supabase client
-const supabase = {
-  from: (table) => ({
-    select: (columns) => ({
-      order: (column, options) => ({
-        then: (callback) => {
-          // Mock data for demo
-          const mockOrders = [];
-          callback({ data: mockOrders, error: null });
-        }
-      })
-    }),
-    insert: (data) => ({
-      select: () => ({
-        then: (callback) => {
-          const insertedData = data.map((item, index) => ({ ...item, id: Date.now() + index }));
-          callback({ data: insertedData, error: null });
-        }
-      })
-    }),
-    update: (data) => ({
-      eq: (column, value) => ({
-        then: (callback) => {
-          callback({ error: null });
-        }
-      })
-    }),
-    delete: () => ({
-      eq: (column, value) => ({
-        then: (callback) => {
-          callback({ error: null });
-        }
-      })
-    })
-  })
-};
+// Replace this mock Supabase with your actual Supabase client
+// Uncomment and configure the lines below with your Supabase credentials:
+
+import { createClient } from '@supabase/supabase-js'
+
+const supabaseUrl = 'https://ykwpsojpnfqwqtpxtccv.supabase.co'  // Replace with your URL
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlrd3Bzb2pwbmZxd3F0cHh0Y2N2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM4NDkxMjEsImV4cCI6MjA2OTQyNTEyMX0.fRAUneAPz1a7krlsU7le7-g4Ub0pogfyqoeNOcGw1RE'  // Replace with your key
+const supabase = createClient(supabaseUrl, supabaseKey)
 
 const BobaOrderApp = () => {
+  // Core state management
   const [cart, setCart] = useState([]);
   const [currentOrder, setCurrentOrder] = useState({
     category: '',
     flavor: '',
-    teaBase: '', // New field for tea base
+    teaBase: '',
     size: 'Regular',
     iceLevel: '50%',
     sugarLevel: '50%',
@@ -51,78 +24,76 @@ const BobaOrderApp = () => {
     crystalBoba: false,
     quantity: 1
   });
-  const [paymentMethod, setPaymentMethod] = useState('venmo');
-  const [showCheckout, setShowCheckout] = useState(false);
-  const [customerName, setCustomerName] = useState('');
   
-  // Updated state management
-  const [totalOrders, setTotalOrders] = useState({
-    count: 0,
-    totalValue: 0
-  });
-  
-  // Admin mode state
-  const [isAdminMode, setIsAdminMode] = useState(false);
-  const [allOrders, setAllOrders] = useState([]);
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [passwordInput, setPasswordInput] = useState('');
-  const [orderCounter, setOrderCounter] = useState(1);
+  // UI state
   const [loading, setLoading] = useState(false);
+  const [showCheckout, setShowCheckout] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
   
-  const ADMIN_PASSWORD = "bobaadmin123";
-  const MINIMUM_ORDERS = 20;
+  // Admin state
+  const [isAdminMode, setIsAdminMode] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+  const ADMIN_PASSWORD = 'bobaclub2024'; // Change this to your desired password
+  
+  // Customer info state
+  const [customerName, setCustomerName] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('venmo');
+  
+  // Database state
+  const [allOrders, setAllOrders] = useState([]);
+  const [orderCounter, setOrderCounter] = useState(1);
+  const [totalOrders, setTotalOrders] = useState({ count: 0, totalValue: 0 });
+  const [connectionStatus, setConnectionStatus] = useState('unknown'); // 'connected', 'disconnected', 'testing', 'unknown'
 
-  // Load orders and stats when component mounts
+  // Load data from Supabase on component mount
   useEffect(() => {
-    loadOrdersFromDatabase();
+    loadAllOrders();
     loadOrderStats();
+    testConnection();
   }, []);
 
-  // Tea base is optional for all drinks
-  const showTeaBaseOption = (category) => {
-    return category !== ''; // Show for any selected category
-  };
+  // Test database connection
+  const testConnection = async () => {
+    setConnectionStatus('testing');
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('count', { count: 'exact', head: true });
 
-  // Helper function to check if tea base is required (not used but keeping for consistency)
-  const requiresTeaBase = (category) => {
-    return false; // Tea base is optional for all drinks
+      if (error) {
+        console.error('Connection test failed:', error);
+        setConnectionStatus('disconnected');
+      } else {
+        setConnectionStatus('connected');
+      }
+    } catch (error) {
+      console.error('Connection test error:', error);
+      setConnectionStatus('disconnected');
+    }
   };
-
-  // Available tea bases
-  const teaBases = ['Black Tea', 'Green Tea'];
 
   // Load all orders from Supabase
-  const loadOrdersFromDatabase = async () => {
+  const loadAllOrders = async () => {
     try {
-      console.log('Loading orders from Supabase...');
-      
       const { data, error } = await supabase
         .from('orders')
         .select('*')
         .order('created_at', { ascending: false });
 
-      console.log('Supabase response:', { data, error });
-
       if (error) {
         console.error('Error loading orders:', error);
-        alert(`Database error: ${error.message}. Please check your Supabase setup.`);
         return;
       }
 
-      // Reassign order numbers sequentially
-      const ordersWithSequentialNumbers = (data || []).map((order, index) => ({
-        ...order,
-        order_number: index + 1
-      }));
-
-      setAllOrders(ordersWithSequentialNumbers);
-      
-      // Set next order counter
-      setOrderCounter((ordersWithSequentialNumbers.length || 0) + 1);
+      if (data) {
+        // Reassign order numbers based on current data
+        const reorderedData = reassignOrderNumbers(data.reverse());
+        setAllOrders(reorderedData);
+        setOrderCounter(reorderedData.length + 1);
+      }
     } catch (error) {
       console.error('Error loading orders:', error);
-      alert(`Connection error: ${error.message}. Please check your internet connection and Supabase configuration.`);
     }
   };
 
@@ -217,7 +188,7 @@ const BobaOrderApp = () => {
     }
   };
 
-  // Your existing drink categories and other constants remain the same
+  // Your existing drink categories and other constants
   const drinkCategories = {
     'Classic Milk Tea': {
       price: 3.49,
@@ -308,6 +279,10 @@ const BobaOrderApp = () => {
     },
   };
 
+  const teaBases = [
+    'Green Tea', 'Black Tea', 'Jasmine Tea', 'Oolong Tea', 'White Tea'
+  ];
+
   const toppings = [
     'Honey Boba', 'Crystal Boba (+30¢)', 'Popping Boba (Mango)', 'Popping Boba (Strawberry)',
     'Popping Boba (Lychee)', 'Popping Boba (Passionfruit)', 'Popping Boba (Blueberry)', 'Popping Boba (Kiwi)', 
@@ -319,7 +294,7 @@ const BobaOrderApp = () => {
   const iceLevels = ['No Ice', '25%', '50%', '75%', '100%'];
   const sugarLevels = ['0%', '30%', '50%', '70%', '100%'];
 
-  // Your existing helper functions remain the same
+  // Helper functions
   const isOrderingOpen = () => {
     return true;
   };
@@ -340,6 +315,10 @@ const BobaOrderApp = () => {
       }
     }
     return "Orders open Tuesdays & Wednesdays 8:30 AM - 1:30 PM";
+  };
+
+  const requiresTeaBase = (category) => {
+    return ['Milk Tea', 'Premium Milk Tea', 'Classic Milk Tea', 'Panda Milk Tea', 'Fruit Tea'].includes(category);
   };
 
   const calculateItemPrice = (item) => {
@@ -371,6 +350,11 @@ const BobaOrderApp = () => {
   const addToCart = async () => {
     if (!currentOrder.category || !currentOrder.flavor) {
       alert('Please select a drink category and flavor');
+      return;
+    }
+    
+    if (requiresTeaBase(currentOrder.category) && !currentOrder.teaBase) {
+      alert('Please select a tea base for this drink');
       return;
     }
     
@@ -752,10 +736,6 @@ const BobaOrderApp = () => {
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order #</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Qty</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Price</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payment</th>
@@ -850,7 +830,7 @@ const BobaOrderApp = () => {
     return (
       <div className="max-w-4xl mx-auto p-6 bg-white min-h-screen">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-3xl font-bold text-purple-600">Credits and Acknowledgments</h1>
+          <h1 className="text-3xl font-bold text-purple-600">About NCSSM Quickly's Boba</h1>
           <button
             onClick={() => setShowAbout(false)}
             className="p-2 hover:bg-gray-100 rounded-full"
@@ -864,30 +844,19 @@ const BobaOrderApp = () => {
             <h2 className="text-2xl font-semibold text-purple-800 mb-4">Purpose</h2>
             <p className="text-gray-700 leading-relaxed">
               This website was created to streamline the boba tea ordering process for NCSSM students. 
-              By collecting and consolidating orders digitally we are able to simplify the full process 
-              to create an enjoyable experience for all.
+              By collecting orders digitally and requiring a minimum number of orders before placing bulk orders through Quickly's, 
+              we can provide students with affordable boba tea while ensuring efficient delivery logistics.
             </p>
-          </div>
-
-          <div className="bg-red-50 p-6 rounded-lg border border-red-200">
-            <h2 className="text-2xl font-semibold text-red-800 mb-4">Important Information</h2>
-            <ul className="list-disc list-inside space-y-2 text-gray-700">
-              <li>Orders are only accepted during designated time periods (Tuesdays & Wednesdays 8:30 AM - 1:30 PM)</li>
-              <li>All prices shown include the 20% bulk ordering discount</li>
-              <li>Payment must be completed before pickup</li>
-              <li>Orders are delivered to campus at approximately 4:45 PM on order days</li>
-              <li>Custom tea base selection is available for most drinks</li>
-            </ul>
           </div>
 
           <div className="bg-blue-50 p-6 rounded-lg border border-blue-200">
             <h2 className="text-2xl font-semibold text-blue-800 mb-4">How It Works</h2>
             <ul className="list-disc list-inside space-y-2 text-gray-700">
               <li>Students place orders through this website during designated ordering periods</li>
-              <li>Orders are collected throughout ordering periods</li>
+              <li>Orders are collected until we reach the minimum threshold (20 orders)</li>
               <li>Once the minimum is met, bulk orders are placed with Quickly's</li>
-              <li>Once orders are placed they are distributed by Boba Club leadership</li>
-              <li>All drinks include a 20% discount for NCSSM students</li>
+              <li>All drinks include a 20% discount from bulk ordering</li>
+              <li>Orders are delivered to campus at scheduled times</li>
             </ul>
           </div>
 
@@ -895,7 +864,9 @@ const BobaOrderApp = () => {
             <h2 className="text-2xl font-semibold text-green-800 mb-4">Features</h2>
             <ul className="list-disc list-inside space-y-2 text-gray-700">
               <li>Real-time order tracking and statistics</li>
-              <li>Ease of efficient distribution among students</li>
+              <li>Admin panel for order management</li>
+              <li>CSV export for easy order processing</li>
+              <li>Multiple payment options (Venmo, Zelle, Cash)</li>
               <li>Comprehensive drink menu with customization options</li>
               <li>Automatic order completion and cleanup</li>
             </ul>
@@ -911,20 +882,31 @@ const BobaOrderApp = () => {
                 <strong>Boba Supplier:</strong> Quickly's - providing high-quality boba tea and allowing bulk ordering discounts.
               </p>
               <p>
-                <strong>Student Contributions:</strong> To the NCSSM Boba Club (c/o 2026) for helping in distribution and troubleshooting.
+                <strong>Special Thanks:</strong> To the NCSSM community for supporting this initiative and making affordable boba accessible to students.
               </p>
               <p>
                 <strong>Icons:</strong> Lucide React icon library for beautiful, consistent UI elements.
               </p>
+              <p>
+                <strong>Backend Infrastructure:</strong> Designed to work with Supabase for reliable data storage and real-time updates.
+              </p>
             </div>
+          </div>
+
+          <div className="bg-red-50 p-6 rounded-lg border border-red-200">
+            <h2 className="text-2xl font-semibold text-red-800 mb-4">Important Information</h2>
+            <ul className="list-disc list-inside space-y-2 text-gray-700">
+              <li>Orders are only accepted during designated time periods (Tuesdays & Wednesdays 8:30 AM - 1:30 PM)</li>
+              <li>All prices shown include the 20% bulk ordering discount</li>
+              <li>Payment must be completed before pickup</li>
+              <li>Orders are delivered to campus at approximately 4:45 PM on order days</li>
+              <li>Custom tea base selection is available for most drinks</li>
+            </ul>
           </div>
 
           <div className="text-center pt-6 border-t border-gray-200">
             <p className="text-gray-600">
-              Questions or suggestions? Contact the Boba Club officer team.
-            </p>
-            <p className="text-gray-600">
-              Website created by Muhilan Krishnan '26.
+              Questions or suggestions? Contact the Boba Club organizers.
             </p>
             <p className="text-sm text-gray-500 mt-2">
               Last updated: {new Date().toLocaleDateString()}
@@ -1102,6 +1084,7 @@ const BobaOrderApp = () => {
     );
   }
 
+  // Main ordering interface
   return (
     <div className="max-w-2xl mx-auto p-6 bg-white min-h-screen">
       {showPasswordModal && <PasswordModal />}
@@ -1117,6 +1100,27 @@ const BobaOrderApp = () => {
           </div>
         </div>
         <div className="flex gap-2">
+          <button
+            onClick={testConnection}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+              connectionStatus === 'connected' ? 'bg-green-600 text-white hover:bg-green-700' :
+              connectionStatus === 'disconnected' ? 'bg-red-600 text-white hover:bg-red-700' :
+              connectionStatus === 'testing' ? 'bg-yellow-600 text-white' :
+              'bg-gray-600 text-white hover:bg-gray-700'
+            }`}
+            disabled={connectionStatus === 'testing'}
+          >
+            {connectionStatus === 'connected' ? <Wifi className="w-4 h-4" /> :
+             connectionStatus === 'disconnected' ? <WifiOff className="w-4 h-4" /> :
+             connectionStatus === 'testing' ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> :
+             <Wifi className="w-4 h-4" />
+            }
+            {connectionStatus === 'connected' ? 'Connected' :
+             connectionStatus === 'disconnected' ? 'Disconnected' :
+             connectionStatus === 'testing' ? 'Testing...' :
+             'Test DB'
+            }
+          </button>
           <button
             onClick={handleAdminClick}
             className="flex items-center gap-2 bg-red-600 text-white px-3 py-2 rounded-lg hover:bg-red-700 transition-colors text-sm"
@@ -1135,305 +1139,243 @@ const BobaOrderApp = () => {
         </div>
       </div>
 
-      <div className={`mb-6 p-4 rounded-lg border ${
-        totalOrders.count >= MINIMUM_ORDERS 
-          ? 'bg-green-100 border-green-200' 
-          : 'bg-red-100 border-red-200'
-      }`}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className={`text-lg font-semibold ${
-              totalOrders.count >= MINIMUM_ORDERS ? 'text-green-800' : 'text-red-800'
-            }`}>
-              {totalOrders.count >= MINIMUM_ORDERS ? '✅ Minimum Orders Met!' : '⚠️ Minimum Orders Required'}
-            </span>
+      {/* Order Progress Bar */}
+      <div className="mb-6 p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border border-purple-200">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-medium text-purple-700">Order Progress</span>
+          <span className="text-sm text-purple-600">{totalOrders.count}/20 drinks</span>
+        </div>
+        <div className="w-full bg-purple-200 rounded-full h-3">
+          <div 
+            className="bg-gradient-to-r from-purple-600 to-pink-600 h-3 rounded-full transition-all duration-500"
+            style={{ width: `${Math.min(100, (totalOrders.count / 20) * 100)}%` }}
+          ></div>
+        </div>
+        <div className="flex items-center gap-4 mt-3 text-sm text-purple-600">
+          <div className="flex items-center gap-1">
+            <TrendingUp className="w-4 h-4" />
+            <span>Total Revenue: ${totalOrders.totalValue.toFixed(2)}</span>
           </div>
-          <div className="text-right">
-            <div className={`text-2xl font-bold ${
-              totalOrders.count >= MINIMUM_ORDERS ? 'text-green-600' : 'text-red-600'
-            }`}>
-              {totalOrders.count}/{MINIMUM_ORDERS}
-            </div>
-            <div className={`text-sm ${
-              totalOrders.count >= MINIMUM_ORDERS ? 'text-green-700' : 'text-red-700'
-            }`}>
-              Orders
-            </div>
+          <div className="flex items-center gap-1">
+            <User className="w-4 h-4" />
+            <span>{allOrders.length} orders</span>
           </div>
         </div>
-        <div className="mt-2">
-          <p className={`text-sm ${
-            totalOrders.count >= MINIMUM_ORDERS ? 'text-green-700' : 'text-red-700'
-          }`}>
-            {totalOrders.count >= MINIMUM_ORDERS 
-              ? 'Great! We have enough orders to place a bulk order.' 
-              : `We need ${MINIMUM_ORDERS - totalOrders.count} more orders to place a bulk order through Quickly's.`
-            }
+      </div>
+
+      {!isOrderingOpen() && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-red-700 font-medium">⏰ Ordering is currently closed</p>
+          <p className="text-sm text-red-600 mt-1">
+            Orders are accepted Tuesdays & Wednesdays from 8:30 AM to 1:30 PM
           </p>
         </div>
+      )}
+
+      {/* Drink Category Selection */}
+      <div className="mb-6">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Drink Category *
+        </label>
+        <select
+          value={currentOrder.category}
+          onChange={(e) => {
+            setCurrentOrder({ 
+              ...currentOrder, 
+              category: e.target.value, 
+              flavor: '',
+              teaBase: '' 
+            });
+          }}
+          className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+        >
+          <option value="">Select a category</option>
+          {Object.entries(drinkCategories).map(([category, info]) => (
+            <option key={category} value={category}>
+              {category} (${info.price.toFixed(2)})
+            </option>
+          ))}
+        </select>
       </div>
 
-      <div className="mb-6 p-4 bg-gradient-to-r from-purple-100 to-pink-100 rounded-lg border border-purple-200">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-purple-600" />
-            <h2 className="text-lg font-semibold text-purple-800">Today's Orders</h2>
-          </div>
-          <div className="text-right">
-            <div className="text-2xl font-bold text-purple-600">{totalOrders.count}</div>
-            <div className="text-sm text-purple-700">Total Items</div>
-          </div>
-        </div>
-        <div className="mt-2 flex justify-between items-center">
-          <span className="text-purple-700">Total Order Value:</span>
-          <span className="text-lg font-semibold text-purple-800">${totalOrders.totalValue.toFixed(2)}</span>
-        </div>
-      </div>
-
-      <div className="space-y-6">
-        <div>
+      {/* Flavor Selection */}
+      {currentOrder.category && (
+        <div className="mb-6">
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            Category * <span className="text-purple-600 text-xs">(All prices include 20% discount)</span>
+            Flavor *
           </label>
           <select
-            value={currentOrder.category}
-            onChange={(e) => setCurrentOrder({ ...currentOrder, category: e.target.value, flavor: '', teaBase: '' })}
+            value={currentOrder.flavor}
+            onChange={(e) => setCurrentOrder({ ...currentOrder, flavor: e.target.value })}
             className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
           >
-            <option value="">Select a category</option>
-            {Object.entries(drinkCategories).map(([category, info]) => (
-              <option key={category} value={category}>
-                {category} (${(info.price * 0.8).toFixed(2)})
+            <option value="">Select a flavor</option>
+            {drinkCategories[currentOrder.category]?.flavors.map((flavor) => (
+              <option key={flavor} value={flavor}>
+                {flavor}
               </option>
             ))}
           </select>
         </div>
+      )}
 
-        {currentOrder.category && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Flavor *
-            </label>
-            <select
-              value={currentOrder.flavor}
-              onChange={(e) => setCurrentOrder({ ...currentOrder, flavor: e.target.value })}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-            >
-              <option value="">Select a flavor</option>
-              {drinkCategories[currentOrder.category].flavors.map((flavor) => (
-                <option key={flavor} value={flavor}>{flavor}</option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {currentOrder.category && showTeaBaseOption(currentOrder.category) && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Tea Base <span className="text-gray-500 text-xs">(Optional - leave blank for default)</span>
-            </label>
-            <div className="grid grid-cols-3 gap-3">
-              <button
-                onClick={() => setCurrentOrder({ ...currentOrder, teaBase: '' })}
-                className={`p-3 border rounded-lg text-center transition-colors ${
-                  currentOrder.teaBase === ''
-                    ? 'border-gray-500 bg-gray-50 text-gray-700'
-                    : 'border-gray-300 hover:border-gray-400'
-                }`}
-              >
-                <div className="font-medium">Default</div>
-              </button>
-              {teaBases.map((base) => (
-                <button
-                  key={base}
-                  onClick={() => setCurrentOrder({ ...currentOrder, teaBase: base })}
-                  className={`p-3 border rounded-lg text-center transition-colors ${
-                    currentOrder.teaBase === base
-                      ? 'border-orange-500 bg-orange-50 text-orange-700'
-                      : 'border-gray-300 hover:border-orange-300'
-                  }`}
-                >
-                  <div className="font-medium">{base}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-        
-        {currentOrder.category && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Size
-            </label>
-            <div className="grid grid-cols-2 gap-3">
-              {['Regular', 'Large'].map((size) => (
-                <button
-                  key={size}
-                  onClick={() => setCurrentOrder({ ...currentOrder, size })}
-                  className={`p-3 border rounded-lg text-center transition-colors ${
-                    currentOrder.size === size
-                      ? 'border-purple-500 bg-purple-50 text-purple-700'
-                      : 'border-gray-300 hover:border-purple-300'
-                  }`}
-                >
-                  <div className="font-medium">{size}</div>
-                  <div className="text-sm text-gray-600">
-                    {size === 'Large' ? '+$0.60 (with discount)' : 'Standard'}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {currentOrder.category && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Ice Level
-            </label>
-            <div className="grid grid-cols-5 gap-2">
-              {iceLevels.map((level) => (
-                <button
-                  key={level}
-                  onClick={() => setCurrentOrder({ ...currentOrder, iceLevel: level })}
-                  className={`p-2 border rounded text-sm transition-colors ${
-                    currentOrder.iceLevel === level
-                      ? 'border-blue-500 bg-blue-50 text-blue-700'
-                      : 'border-gray-300 hover:border-blue-300'
-                  }`}
-                >
-                  {level}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {currentOrder.category && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Sugar Level
-            </label>
-            <div className="grid grid-cols-5 gap-2">
-              {sugarLevels.map((level) => (
-                <button
-                  key={level}
-                  onClick={() => setCurrentOrder({ ...currentOrder, sugarLevel: level })}
-                  className={`p-2 border rounded text-sm transition-colors ${
-                    currentOrder.sugarLevel === level
-                      ? 'border-pink-500 bg-pink-50 text-pink-700'
-                      : 'border-gray-300 hover:border-pink-300'
-                  }`}
-                >
-                  {level}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {currentOrder.category && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Toppings <span className="text-purple-600 text-xs">(48¢ each with discount, unless noted)</span>
-            </label>
-            <div className="grid grid-cols-2 gap-3">
-              {toppings.map((topping) => (
-                <button
-                  key={topping}
-                  onClick={() => handleToppingChange(topping)}
-                  className={`p-3 border rounded-lg text-left transition-colors ${
-                    currentOrder.toppings.includes(topping)
-                      ? 'border-green-500 bg-green-50 text-green-700'
-                      : 'border-gray-300 hover:border-green-300'
-                  }`}
-                >
-                  <div className="font-medium text-sm">{topping}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div>
+      {/* Tea Base Selection */}
+      {requiresTeaBase(currentOrder.category) && (
+        <div className="mb-6">
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            Quantity
+            Tea Base *
           </label>
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => updateQuantity(-1)}
-              className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-            >
-              <Minus className="w-4 h-4" />
-            </button>
-            <span className="text-xl font-medium px-4">{currentOrder.quantity}</span>
-            <button
-              onClick={() => updateQuantity(1)}
-              className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-            >
-              <Plus className="w-4 h-4" />
-            </button>
-          </div>
+          <select
+            value={currentOrder.teaBase}
+            onChange={(e) => setCurrentOrder({ ...currentOrder, teaBase: e.target.value })}
+            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+          >
+            <option value="">Select a tea base</option>
+            {teaBases.map((base) => (
+              <option key={base} value={base}>
+                {base}
+              </option>
+            ))}
+          </select>
         </div>
+      )}
 
+      {/* Size Selection */}
+      <div className="mb-6">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Size
+        </label>
+        <div className="grid grid-cols-2 gap-3">
+          {['Regular', 'Large'].map((size) => (
+            <button
+              key={size}
+              onClick={() => setCurrentOrder({ ...currentOrder, size })}
+              className={`p-3 rounded-lg border-2 transition-colors ${
+                currentOrder.size === size
+                  ? 'border-purple-500 bg-purple-50 text-purple-700'
+                  : 'border-gray-200 hover:border-purple-300'
+              }`}
+            >
+              {size} {size === 'Large' && '(+$0.75)'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Ice Level */}
+      <div className="mb-6">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Ice Level
+        </label>
+        <div className="grid grid-cols-5 gap-2">
+          {iceLevels.map((level) => (
+            <button
+              key={level}
+              onClick={() => setCurrentOrder({ ...currentOrder, iceLevel: level })}
+              className={`p-2 rounded-lg border-2 text-sm transition-colors ${
+                currentOrder.iceLevel === level
+                  ? 'border-blue-500 bg-blue-50 text-blue-700'
+                  : 'border-gray-200 hover:border-blue-300'
+              }`}
+            >
+              {level}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Sugar Level */}
+      <div className="mb-6">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Sugar Level
+        </label>
+        <div className="grid grid-cols-5 gap-2">
+          {sugarLevels.map((level) => (
+            <button
+              key={level}
+              onClick={() => setCurrentOrder({ ...currentOrder, sugarLevel: level })}
+              className={`p-2 rounded-lg border-2 text-sm transition-colors ${
+                currentOrder.sugarLevel === level
+                  ? 'border-yellow-500 bg-yellow-50 text-yellow-700'
+                  : 'border-gray-200 hover:border-yellow-300'
+              }`}
+            >
+              {level}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Toppings */}
+      <div className="mb-6">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Toppings (Max 2)
+        </label>
+        <div className="grid grid-cols-1 gap-2 max-h-60 overflow-y-auto">
+          {toppings.map((topping) => (
+            <label key={topping} className="flex items-center p-2 hover:bg-gray-50 rounded-lg">
+              <input
+                type="checkbox"
+                checked={currentOrder.toppings.includes(topping)}
+                onChange={() => handleToppingChange(topping)}
+                disabled={!currentOrder.toppings.includes(topping) && currentOrder.toppings.length >= 2}
+                className="mr-3 rounded"
+              />
+              <span className="text-sm flex-1">{topping}</span>
+              <span className="text-xs text-gray-500">
+                {topping.includes('+30¢') ? '+$0.30' : 
+                 topping.includes('+25¢') ? '+$0.25' : 
+                 '+$0.60'}
+              </span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      {/* Crystal Boba */}
+      <div className="mb-6">
+        <label className="flex items-center p-3 bg-blue-50 rounded-lg border border-blue-200">
+          <input
+            type="checkbox"
+            checked={currentOrder.crystalBoba}
+            onChange={(e) => setCurrentOrder({ ...currentOrder, crystalBoba: e.target.checked })}
+            className="mr-3 rounded"
+          />
+          <span className="font-medium text-blue-800">Crystal Boba (+$0.30)</span>
+        </label>
+      </div>
+
+      {/* Quantity */}
+      <div className="mb-6">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Quantity
+        </label>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => updateQuantity(-1)}
+            className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+          >
+            <Minus className="w-4 h-4" />
+          </button>
+          <span className="text-lg font-medium w-12 text-center">{currentOrder.quantity}</span>
+          <button
+            onClick={() => updateQuantity(1)}
+            className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Add to Cart Button */}
+      <div className="mb-6">
         <button
           onClick={addToCart}
           disabled={!currentOrder.category || !currentOrder.flavor || (requiresTeaBase(currentOrder.category) && !currentOrder.teaBase) || loading}
           className="w-full bg-purple-600 text-white py-4 rounded-lg font-medium hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
         >
-          {loading ? 'Adding...' : `Add to Cart - ${currentOrder.category && currentOrder.flavor ? calculateItemPrice(currentOrder).toFixed(2) : '0.00'}`}
-        </button>
-      </div>
-
-      {cart.length > 0 && (
-        <div className="mt-8 p-4 bg-gray-50 rounded-lg">
-          <h3 className="font-medium text-gray-800 mb-2">Cart Preview ({cart.length} items):</h3>
-          {cart.slice(-2).map((item) => (
-            <div key={item.id} className="flex justify-between items-center text-sm text-gray-600 mb-1">
-              <span>
-                {item.flavor} ({item.category})
-                {item.teaBase && ` - ${item.teaBase}`} x{item.quantity}
-              </span>
-              <div className="flex items-center gap-2">
-                <span>${item.price.toFixed(2)}</span>
-                <button
-                  onClick={() => removeFromCart(item.id)}
-                  className="text-red-500 hover:text-red-700"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-            </div>
-          ))}
-          {cart.length > 2 && (
-            <div className="text-xs text-gray-500">...and {cart.length - 2} more items</div>
-          )}
-          <div className="border-t pt-2 mt-2 space-y-1">
-            <div className="flex justify-between text-sm text-gray-600">
-              <span>Subtotal:</span>
-              <span>${getTotalPrice().toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between text-sm text-gray-600">
-              <span>Tax (7.5%):</span>
-              <span>${getSalesTax().toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between font-medium text-purple-600 border-t pt-1">
-              <span>Total:</span>
-              <span>${getFinalTotal().toFixed(2)}</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* About Button - Fixed Position Bottom Left */}
-      <button
-        onClick={() => setShowAbout(true)}
-        className="fixed bottom-6 left-6 bg-gray-600 text-white px-4 py-2 rounded-full hover:bg-gray-700 transition-colors shadow-lg flex items-center gap-2 text-sm z-10"
-      >
-        About
-      </button>
-    </div>
-  );
-};
-
-export default BobaOrderApp;
+          {loading ? 'Adding...' : `Add to Cart - ${currentOrder.category && currentOrder.flavor ? calculateItemPrice(currentOrder).toFixed(2) : '0.00'-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order #</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
+                  <th className="px-6 py-3 text
