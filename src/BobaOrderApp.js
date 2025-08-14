@@ -1124,6 +1124,14 @@ const BobaOrderApp = () => {
         </div>
       </div>
 
+                 <div className="mb-6 p-4 bg-gradient-to-r from-blue-100 to-blue-100 rounded-lg border border-purple-200">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <h2 className="text-dark-blue-700">Make sure to click the cart and input your name before finishing your order</h2>
+          </div>
+        </div>
+      </div>
+
       <div className={`mb-6 p-4 rounded-lg border ${
         totalOrders.count >= MINIMUM_ORDERS 
           ? 'bg-green-100 border-green-200' 
