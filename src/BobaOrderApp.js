@@ -222,15 +222,15 @@ const BobaOrderApp = () => {
   // Your existing drink categories and other constants remain the same
   const drinkCategories = {
     'Classic Milk Tea': {
-      price: 3.49,
+      price: 3.99,
       flavors: ['Classic', 'Jasmine']
     },
     'Other Tea': {
-      price: 3.35,
+      price: 3.85,
       flavors: ['Classic Tea', 'Jasmine Tea']
     },
     'Milk Tea': {
-      price: 3.95,
+      price: 4.45,
       flavors: [
         'Almond', 'Banana', 'Blueberry', 'Blue Raspberry', 'Cantaloupe', 'Chocolate', 'Chocolate-Covered Strawberries',
         'Coconut', 'Gingerbread', 'Ginger', 'Grapefruit', 'Green Apple', 'Hazelnut', 'Honey Dew', 'Honey',
@@ -239,15 +239,15 @@ const BobaOrderApp = () => {
       ]
     },
     'Premium Milk Tea': {
-      price: 4.05,
+      price: 4.55,
       flavors: ['Hokkaido (Caramel w/Classic)', 'Okinawa (Brown Sugar w/Classic']
     },
     'Panda Milk Tea': {
-      price: 3.75,
+      price: 4.75,
       flavors: ['Panda Special']
     },
     'Fruit Tea': {
-      price: 3.75,
+      price: 4.25,
       flavors: [
         'Almond', 'Banana', 'Blueberry', 'Cantaloupe', 'Champagne Grape',
         'Ginger', 'Green Apple', 'Honey Dew', 'Honey', 'Honey Lemon', 'Kiwi',
@@ -256,13 +256,13 @@ const BobaOrderApp = () => {
       ]
     },
     'Coffee': {
-      price: 4.35,
+      price: 4.85,
       flavors: [
         'Iced Caramel Latte', 'Iced Mocha', 'Vietnamese Coffee'
       ]
     },
     'Slush': {
-      price: 4.85,
+      price: 5.35,
       flavors: [
         'Blueberry', 'Cantaloupe', 'Champagne Grape', 'Green Apple', 'Honey Dew',
         'Honey', 'Kiwi', 'Lemon', 'Lychee', 'Mango', 'Matcha', 'Orange',
@@ -271,7 +271,7 @@ const BobaOrderApp = () => {
       ]
     },
     'Snow': {
-      price: 4.95,
+      price: 5.45,
       flavors: [
         'Almond', 'Cantaloupe', 'Caramel', 'Chocolate', 'Coconut', 'Green Apple',
         'Honey Dew', 'Kiwi', 'Lychee', 'Mango', 'Orange', 'Passion Fruit',
@@ -279,31 +279,31 @@ const BobaOrderApp = () => {
       ]
     },
     'Coffee Snow': {
-      price: 5.35,
+      price: 5.85,
       flavors: [
         'Mocha Snow', 'Aloha Mocha Snow'
       ]
     },
     'Oreo Snow': {
-      price: 5.25,
+      price: 5.75,
       flavors: [
         'Normal'
       ]
     },
     'Café au Lait (Iced)': {
-      price: 3.95,
+      price: 4.45,
       flavors: [
         'Normal'
       ]
     },
     'Coffee Slush': {
-      price: 4.05,
+      price: 4.55,
       flavors: [
         'Normal'
       ]
     },
     'Iced Latte': {
-      price: 4.25,
+      price: 4.75,
       flavors: [
         'Normal'
       ]
@@ -311,11 +311,11 @@ const BobaOrderApp = () => {
   };
 
   const toppings = [
-    'Honey Boba', 'Crystal Boba (+30¢)', 'Popping Boba (Mango)', 'Popping Boba (Strawberry)',
+    'Honey Boba', 'Crystal Boba (+20¢)', 'Popping Boba (Mango)', 'Popping Boba (Strawberry)',
     'Popping Boba (Lychee)', 'Popping Boba (Passionfruit)', 'Popping Boba (Blueberry)', 'Popping Boba (Kiwi)', 
     'Popping Boba (Peach)','Mango Stars', 'Strawberry Hearts', 'Green Apple Jelly', 'Lychee Jelly',
-    'Rainbow Jelly', 'Coffee Jelly', 'Red Bean', 'Grass Jelly (+25¢)',
-    'Egg Pudding (+25¢)'
+    'Rainbow Jelly', 'Coffee Jelly', 'Red Bean', 'Grass Jelly (+15¢)',
+    'Egg Pudding (+15¢)'
   ];
 
   const iceLevels = ['No Ice', '25%', '50%', '75%', '100%'];
@@ -352,12 +352,12 @@ const BobaOrderApp = () => {
     
     let toppingsPrice = 0;
     item.toppings.forEach(topping => {
-      if (topping.includes('+30¢') || topping === 'Crystal Boba (+30¢)') {
+      if (topping.includes('+20¢') || topping === 'Crystal Boba (+20¢)') {
         toppingsPrice += 0.30;
-      } else if (topping.includes('+25¢')) {
+      } else if (topping.includes('+15¢')) {
         toppingsPrice += 0.25;
       } else {
-        toppingsPrice += 0.60;
+        toppingsPrice += 0.70;
       }
     });
     
