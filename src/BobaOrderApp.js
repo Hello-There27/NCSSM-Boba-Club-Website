@@ -344,29 +344,35 @@ const BobaOrderApp = () => {
     return "Orders open Tuesdays & Wednesdays 8:30 AM - 1:30 PM";
   };
 
+  // Calculate item price based on menu and toppings
   const calculateItemPrice = (item) => {
     const categoryInfo = drinkCategories[item.category];
     if (!categoryInfo) return 0;
-    
     let basePrice = categoryInfo.price;
-    
+    // Topping pricing (see menu):
+    // - Crystal Boba: $0.20 (should be 20¢)
+    // - Grass Jelly, Egg Pudding: $0.15 (15¢)
+    // - All other toppings: $0.70 (70¢)
     let toppingsPrice = 0;
     item.toppings.forEach(topping => {
-      if (topping.includes('+20¢') || topping === 'Crystal Boba (+20¢)') {
-        toppingsPrice += 0.30;
-      } else if (topping.includes('+15¢')) {
-        toppingsPrice += 0.25;
+      if (topping.includes('Crystal Boba')) {
+        toppingsPrice += 0.20;
+      } else if (topping.includes('Grass Jelly') || topping.includes('Egg Pudding')) {
+        toppingsPrice += 0.15;
       } else {
         toppingsPrice += 0.70;
       }
     });
-    
-    const crystalBobaPrice = item.crystalBoba ? 0.30 : 0;
-    const sizeUpgrade = item.size === 'Large' ? 0.75 : 0;
-    
+    // If crystalBoba is checked as a separate boolean, add it (legacy support)
+    const crystalBobaPrice = item.crystalBoba ? 0.20 : 0;
+    // Size upgrade: Large +$0.85
+    const sizeUpgrade = item.size === 'Large' ? 0.85 : 0;
+    // Bulk discount: 20% off
     const subtotal = (basePrice + toppingsPrice + crystalBobaPrice + sizeUpgrade) * item.quantity;
-    
-    return subtotal * 0.8;
+    const discounted = subtotal * 0.8;
+    // Add sales tax per item
+    const taxed = Math.round((discounted * 1.075) * 100) / 100;
+    return taxed;
   };
 
   // Updated addToCart function
@@ -480,8 +486,12 @@ const BobaOrderApp = () => {
     return getSubtotal() * 0.075;
   };
 
+  // Final total includes sales tax (7.5%)
   const getFinalTotal = () => {
-    return Math.floor((getSubtotal() + getSalesTax()) * 100) / 100;
+    // Add tax after discount
+    const subtotal = getSubtotal();
+    const tax = subtotal * 0.075;
+    return Math.round((subtotal + tax) * 100) / 100;
   };
 
   const handleAdminClick = () => {
@@ -1127,7 +1137,7 @@ const BobaOrderApp = () => {
                  <div className="mb-6 p-4 bg-gradient-to-r from-blue-100 to-blue-100 rounded-lg border border-purple-200">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <h2 className="text-dark-blue-700">Make sure to click the cart and input your name before finishing your order</h2>
+            <h2 className="text-dark-blue-700">Make sure to click the cart and finish your order</h2>
           </div>
         </div>
       </div>
@@ -1187,7 +1197,45 @@ const BobaOrderApp = () => {
         </div>
       </div>
 
+
       <div className="space-y-6">
+        {/* Name Field */}
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Your Name *
+          </label>
+          <div className="relative">
+            <User className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              value={customerName}
+              onChange={(e) => setCustomerName(e.target.value)}
+              placeholder="Enter your name for the order"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            />
+          </div>
+        </div>
+
+        {/* Payment Method Field */}
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Payment Method *
+          </label>
+          <select
+            value={paymentMethod}
+            onChange={(e) => setPaymentMethod(e.target.value)}
+            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+          >
+            <option value="venmo">Venmo (TBD)</option>
+            <option value="zelle">Zelle (TBD)</option>
+            <option value="cash">Cash (pay upon pickup)</option>
+          </select>
+          <div className="mt-2">
+            <PaymentInfo />
+          </div>
+        </div>
+
+        {/* Category Selection */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Category * <span className="text-purple-600 text-xs">(All prices include 20% discount)</span>
@@ -1275,7 +1323,7 @@ const BobaOrderApp = () => {
                 >
                   <div className="font-medium">{size}</div>
                   <div className="text-sm text-gray-600">
-                    {size === 'Large' ? '+$0.60 (with discount)' : 'Standard'}
+                    {size === 'Large' ? '+$0.68 (with discount)' : 'Standard'}
                   </div>
                 </button>
               ))}
