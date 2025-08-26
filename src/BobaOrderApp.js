@@ -1,12 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { ShoppingCart, Plus, Minus, X, Clock, User, TrendingUp, Shield, Download, Eye, Lock, Wifi, WifiOff } from 'lucide-react';
+import { createClient } from '@supabase/supabase-js';
 
-// Supabase client setup
-import { createClient } from '@supabase/supabase-js'
-
-const supabaseUrl = process.env.REACT_APP_SUPABASE_URL
-const supabaseKey = process.env.REACT_APP_SUPABASE_ANON_KEY
-const supabase = createClient(supabaseUrl, supabaseKey)
+const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
+const supabaseKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 const BobaOrderApp = () => {
   const [cart, setCart] = useState([]);
@@ -39,16 +37,65 @@ const BobaOrderApp = () => {
   const [orderCounter, setOrderCounter] = useState(1);
   const [loading, setLoading] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
+  const [showOrderList, setShowOrderList] = useState(false);
+  // Additional info for order (not required, not in CSV)
+  const [additionalInfo, setAdditionalInfo] = useState('');
   const [connectionStatus, setConnectionStatus] = useState('unknown'); // 'connected', 'disconnected', 'testing', 'unknown'
   
   const ADMIN_PASSWORD = "bobaadmin123";
   const MINIMUM_ORDERS = 20;
+
+
 
   // Load orders and stats when component mounts
   useEffect(() => {
     testConnection();
     loadOrdersFromDatabase();
     loadOrderStats();
+  }, []);
+
+  // Auto-delete orders pending for over 15 minutes
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setAllOrders(prevOrders => {
+        const now = new Date();
+        return prevOrders.filter(order => {
+          if (!order.timestamp || order.paid || order.pickedUp) return true;
+          const orderTime = new Date(order.timestamp);
+          const diffMinutes = (now - orderTime) / 60000;
+          if (diffMinutes > 15) {
+            if (order.id) {
+              supabase.from('orders').delete().eq('id', order.id);
+            }
+            return false;
+          }
+          return true;
+        });
+      });
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Auto-delete orders pending for over 15 minutes
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setAllOrders(prevOrders => {
+        const now = new Date();
+        return prevOrders.filter(order => {
+          if (!order.timestamp || order.paid || order.pickedUp) return true;
+          const orderTime = new Date(order.timestamp);
+          const diffMinutes = (now - orderTime) / 60000;
+          if (diffMinutes > 15) {
+            if (order.id) {
+              supabase.from('orders').delete().eq('id', order.id);
+            }
+            return false;
+          }
+          return true;
+        });
+      });
+    }, 60000);
+    return () => clearInterval(interval);
   }, []);
 
   const testConnection = async () => {
@@ -81,15 +128,12 @@ const BobaOrderApp = () => {
     }
   };
 
-  // Tea base is optional for all drinks
-  const showTeaBaseOption = (category) => {
-    return category !== ''; // Show for any selected category
-  };
-
-  // Helper function to check if tea base is required (not used but keeping for consistency)
-  const requiresTeaBase = (category) => {
-    return false; // Tea base is optional for all drinks
-  };
+  // Require tea base for tea drinks
+  const teaCategories = [
+    'Classic Milk Tea', 'Other Tea', 'Milk Tea', 'Premium Milk Tea', 'Panda Milk Tea', 'Fruit Tea'
+  ];
+  const showTeaBaseOption = (category) => teaCategories.includes(category);
+  const requiresTeaBase = (category) => teaCategories.includes(category);
 
   // Available tea bases
   const teaBases = ['Black Tea', 'Green Tea'];
@@ -321,9 +365,24 @@ const BobaOrderApp = () => {
   const iceLevels = ['No Ice', '25%', '50%', '75%', '100%'];
   const sugarLevels = ['0%', '30%', '50%', '70%', '100%'];
 
-  // Your existing helper functions remain the same
+
+  // Toggle this to enable/disable time-based ordering restriction
+  // Set to false to always allow ordering (for testing or special events)
+  const ENABLE_ORDER_TIME_RESTRICTION = true;
+
+  // Only allow ordering during specific days/times if enabled
   const isOrderingOpen = () => {
-    return true;
+  // If restriction is off, always allow ordering
+  if (!ENABLE_ORDER_TIME_RESTRICTION) return true;
+    const now = new Date();
+    const day = now.getDay();
+    const hour = now.getHours();
+    const minute = now.getMinutes();
+    // Only allow ordering on Tuesday (2) or Wednesday (3), 8:30am-1:30pm
+    if ((day === 2 || day === 3) && (hour > 8 || (hour === 8 && minute >= 30)) && (hour < 13 || (hour === 13 && minute < 30))) {
+      return true;
+    }
+    return false;
   };
 
   const getOrderingStatus = () => {
@@ -576,9 +635,8 @@ const BobaOrderApp = () => {
 
   const PaymentInfo = () => {
     const paymentDetails = {
-      venmo: { info: 'Pay via Venmo', note: 'Indicate the payment is for Boba' },
-      zelle: { info: 'Pay via Zelle', note: 'Include the payment is for Boba' },
-      cash: { info: 'Pay with cash upon pickup', note: 'Keep in mind we have limited change and may not be able to compensate fully' }
+      venmo: { info: '@megcherry63', note: 'Indicate the payment is for Boba' },
+      zelle: { info: 'Talk to us at pickup', note: 'Include the payment is for Boba' },
     };
 
     const current = paymentDetails[paymentMethod];
@@ -816,7 +874,6 @@ const BobaOrderApp = () => {
                         <span className={`px-2 py-1 text-xs rounded-full ${
                           order.payment_method === 'venmo' ? 'bg-blue-100 text-blue-800' :
                           order.payment_method === 'zelle' ? 'bg-green-100 text-green-800' :
-                          order.payment_method === 'cash' ? 'bg-yellow-100 text-yellow-800' :
                           'bg-gray-100 text-gray-800'
                         }`}>
                           {order.payment_method === 'Not Selected' ? 'Pending' : order.payment_method}
@@ -921,9 +978,12 @@ const BobaOrderApp = () => {
           <div className="text-center pt-6 border-t border-gray-200">
             <p className="text-gray-600">
               Questions or suggestions? Contact the Boba Club Officer Team.
-            </p>
              <p className="text-gray-600">
-              Created by Muhilan Krishnan '26
+              Created by Muhilan Krishnan '26 Durham
+            </p>
+            </p>
+              <p className="text-gray-600">
+              Unaffiliated wtih NCSSM
             </p>
             <p className="text-sm text-gray-500 mt-2">
               Last updated: {new Date().toLocaleDateString()}
@@ -934,32 +994,39 @@ const BobaOrderApp = () => {
     );
   };
 
-  if (showAbout) {
-    return <AboutPage />;
-  }
 
-  if (isAdminMode) {
-    return <AdminPanel />;
-  }
+  // Checkout form
+  const CheckoutForm = () => {
+    const handleSubmitOrder = async () => {
+      if (!customerName.trim()) {
+        alert('Please enter your name');
+        return;
+      }
+      
+      setLoading(true);
+      try {
+        // Update all cart items with customer name and payment method
+        const promises = cart.map(item => 
+          updateOrderInDatabase(item.id, {
+            customer_name: customerName,
+            payment_method: paymentMethod
+          })
+        );
+        
+        await Promise.all(promises);
+        alert('Order submitted successfully! Please check your order in the All Orders tab.');
+        setShowCheckout(false);
+      } catch (error) {
+        console.error('Error submitting order:', error);
+        alert('There was an error submitting your order. Please try again.');
+      }
+      setLoading(false);
+    };
 
-  if (showCheckout) {
-    const orderNumber = cart[0]?.orderNumber || orderCounter;
-    
     return (
       <div className="max-w-2xl mx-auto p-6 bg-white min-h-screen">
         <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-purple-600">🧋 Boba Club Checkout</h1>
-            <div className="flex items-center gap-4 mt-2 text-sm text-gray-600">
-              <div className="flex items-center gap-1">
-                <Clock className="w-4 h-4" />
-                <span>Delivery ETA: 4:45 PM</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <span>Order #{orderNumber}</span>
-              </div>
-            </div>
-          </div>
+          <h1 className="text-2xl font-bold text-purple-600">Checkout</h1>
           <button
             onClick={() => setShowCheckout(false)}
             className="p-2 hover:bg-gray-100 rounded-full"
@@ -968,143 +1035,160 @@ const BobaOrderApp = () => {
           </button>
         </div>
 
-        <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Your Name *
-          </label>
-          <div className="relative">
-            <User className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
-            <input
-              type="text"
-              value={customerName}
-              onChange={(e) => setCustomerName(e.target.value)}
-              placeholder="Enter your name for the order"
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-            />
-          </div>
-        </div>
-
-        <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Payment Method *
-          </label>
-          <select
-            value={paymentMethod}
-            onChange={(e) => setPaymentMethod(e.target.value)}
-            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-          >
-            <option value="venmo">Venmo (TBD)</option>
-            <option value="zelle">Zelle (TBD)</option>
-            <option value="cash">Cash (pay upon pickup)</option>
-          </select>
-          <div className="mt-2">
-            <PaymentInfo />
-          </div>
-        </div>
-
-        <div className="mb-6">
-          <h2 className="text-lg font-semibold mb-4">Order Summary ({cart.length} items)</h2>
-          <div className="space-y-3">
-            {cart.map((item) => (
-              <div key={item.id} className="flex justify-between items-start py-3 border-b border-gray-100">
-                <div className="flex-1">
-                  <h3 className="font-medium text-gray-900">{item.flavor}</h3>
-                  <p className="text-sm text-gray-600">{item.category}</p>
-                  {item.teaBase && (
-                    <p className="text-sm text-blue-600">Tea Base: {item.teaBase}</p>
-                  )}
-                  <p className="text-sm text-gray-500">
-                    {item.size} | Ice: {item.iceLevel} | Sugar: {item.sugarLevel}
-                  </p>
-                  {(item.toppings.length > 0 || item.crystalBoba) && (
-                    <p className="text-sm text-gray-500">
-                      Add-ons: {[
-                        ...item.toppings,
-                        ...(item.crystalBoba ? ['Crystal Boba'] : [])
-                      ].join(', ')}
-                    </p>
-                  )}
-                  <p className="text-sm text-gray-500">Qty: {item.quantity}</p>
+        <div className="space-y-6">
+          {/* Order Summary */}
+          <div className="bg-gray-50 p-4 rounded-lg">
+            <h2 className="font-medium text-gray-800 mb-4">Order Summary ({cart.length} items)</h2>
+            <div className="space-y-3">
+              {cart.map((item) => (
+                <div key={item.id} className="flex justify-between items-start border-b pb-2">
+                  <div>
+                    <div className="font-medium">{item.flavor}</div>
+                    <div className="text-sm text-gray-600">{item.category}</div>
+                    <div className="text-sm text-gray-500">
+                      {item.size} | Ice: {item.iceLevel} | Sugar: {item.sugarLevel}
+                      {item.teaBase && ` | Base: ${item.teaBase}`}
+                      {item.toppings.length > 0 && (
+                        <div>Toppings: {item.toppings.join(', ')}</div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div>${item.price.toFixed(2)}</div>
+                    <div className="text-sm text-gray-600">Qty: {item.quantity}</div>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">${item.price.toFixed(2)}</span>
-                  <button
-                    onClick={() => removeFromCart(item.id)}
-                    className="text-red-500 hover:text-red-700 p-1"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 pt-2 border-t space-y-1">
+              <div className="flex justify-between text-sm text-gray-600">
+                <span>Subtotal:</span>
+                <span>${getTotalPrice().toFixed(2)}</span>
               </div>
-            ))}
-          </div>
-          
-          <div className="mt-4 pt-4 border-t border-gray-200 space-y-2">
-            <div className="flex justify-between text-gray-600">
-              <span>Subtotal (with 20% discount):</span>
-              <span>${getSubtotal().toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between text-gray-600">
-              <span>Sales Tax (7.5%):</span>
-              <span>${getSalesTax().toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between items-center pt-2 text-xl font-bold border-t">
-              <span>Total:</span>
-              <span className="text-purple-600">${getFinalTotal().toFixed(2)}</span>
+              <div className="flex justify-between text-sm text-gray-600">
+                <span>Tax (7.5%):</span>
+                <span>${getSalesTax().toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between font-medium text-lg text-purple-600 border-t pt-2 mt-2">
+                <span>Total:</span>
+                <span>${getFinalTotal().toFixed(2)}</span>
+              </div>
             </div>
           </div>
-        </div>
 
-        <button
-          onClick={async () => {
-            if (!customerName.trim()) {
-              alert('Please enter your name');
-              return;
-            }
-            
-            setLoading(true);
-            
-            // Update all cart orders with customer info in database
-            const updatePromises = cart.map(cartItem => 
-              updateOrderInDatabase(cartItem.id, {
-                customer_name: customerName,
-                payment_method: paymentMethod
-              })
-            );
-            
-            await Promise.all(updatePromises);
-            
-            // Update local state
-            const updatedOrders = allOrders.map(order => 
-              cart.some(cartItem => cartItem.id === order.id) 
-                ? { ...order, customer_name: customerName, payment_method: paymentMethod }
-                : order
-            );
-            setAllOrders(updatedOrders);
-            
-            alert(`Order confirmed for ${customerName}!\n\nOrder #${orderNumber}\nTotal: ${getFinalTotal().toFixed(2)}\nPayment: ${paymentMethod.charAt(0).toUpperCase() + paymentMethod.slice(1)}\n\nDelivery ETA: 4:45 PM\n\nThanks for ordering with Boba Club!`);
-            setCart([]);
-            setCustomerName('');
-            setShowCheckout(false);
-            setLoading(false);
-          }}
-          disabled={cart.length === 0 || !customerName.trim() || loading}
-          className="w-full bg-purple-600 text-white py-4 rounded-lg font-medium hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-        >
-          {loading ? 'Processing...' : `Confirm Order - ${getFinalTotal().toFixed(2)}`}
-        </button>
-        
-        <p className="text-center text-sm text-gray-500 mt-4">
-          Thanks for ordering with Boba Club! 🧋
-        </p>
+          {/* Customer Information */}
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Your Name *
+              </label>
+              <div className="relative">
+                <User className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  placeholder="Enter your name for the order"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  required
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Payment Method *
+              </label>
+              <select
+                value={paymentMethod}
+                onChange={(e) => setPaymentMethod(e.target.value)}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                required
+              >
+                <option value="venmo">Venmo (@megcherry63)</option>
+                <option value="zelle">Zelle (Talk to us at pickup)</option>
+              </select>
+              <div className="mt-2">
+                <PaymentInfo />
+              </div>
+            </div>
+          </div>
+
+          <button
+            onClick={handleSubmitOrder}
+            disabled={!customerName.trim() || loading}
+            className="w-full bg-purple-600 text-white py-4 rounded-lg font-medium hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+          >
+            {loading ? 'Submitting...' : 'Submit Order'}
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  if (showCheckout) {
+    return <CheckoutForm />;
+  }
+
+  if (showAbout) {
+    return <AboutPage />;
+  }
+
+  if (isAdminMode) {
+    return <AdminPanel />;
+  }
+
+  if (showOrderList) {
+    // My Orders tab: show all orders
+    return (
+      <div className="max-w-2xl mx-auto p-6 bg-white min-h-screen">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-bold text-purple-600">All Orders</h1>
+          <button
+            onClick={() => setShowOrderList(false)}
+            className="p-2 hover:bg-gray-100 rounded-full"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead>
+              <tr>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Order #</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Item</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Details</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-100">
+              {allOrders.map(order => (
+                <tr key={order.id}>
+                  <td className="px-4 py-2">{order.orderNumber || order.order_number || ''}</td>
+                  <td className="px-4 py-2">{order.customer_name || order.customerName || ''}</td>
+                  <td className="px-4 py-2">{order.flavor} <span className="text-xs text-gray-500">({order.category})</span></td>
+                  <td className="px-4 py-2">
+                    {order.size} | Ice: {order.iceLevel} | Sugar: {order.sugarLevel}
+                    {order.teaBase || order.tea_base ? ` | Tea Base: ${order.teaBase || order.tea_base}` : ''}
+                    {order.toppings && order.toppings.length > 0 && (
+                      <span> | Add-ons: {order.toppings.join(', ')}</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2">${order.price ? order.price.toFixed(2) : ''}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="max-w-2xl mx-auto p-6 bg-white min-h-screen">
-      {showPasswordModal && <PasswordModal />}
-      
+      {/* Always show header and status */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-3xl font-bold text-purple-600">🧋 NCSSM Quickly's Boba</h1>
@@ -1126,347 +1210,362 @@ const BobaOrderApp = () => {
           <button
             onClick={() => setShowCheckout(true)}
             className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors"
-            disabled={cart.length === 0}
+            disabled={cart.length === 0 || (ENABLE_ORDER_TIME_RESTRICTION && !isOrderingOpen())}
           >
             <ShoppingCart className="w-4 h-4" />
             Cart ({cart.length})
           </button>
         </div>
-      </div>
 
-                 <div className="mb-6 p-4 bg-gradient-to-r from-blue-100 to-blue-100 rounded-lg border border-purple-200">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <h2 className="text-dark-blue-700">Make sure to click the cart and finish your order</h2>
-          </div>
-        </div>
-      </div>
-
-      <div className={`mb-6 p-4 rounded-lg border ${
-        totalOrders.count >= MINIMUM_ORDERS 
-          ? 'bg-green-100 border-green-200' 
-          : 'bg-red-100 border-red-200'
-      }`}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className={`text-lg font-semibold ${
-              totalOrders.count >= MINIMUM_ORDERS ? 'text-green-800' : 'text-red-800'
-            }`}>
-              {totalOrders.count >= MINIMUM_ORDERS ? '✅ Minimum Orders Met!' : '⚠️ Minimum Orders Required'}
-            </span>
-          </div>
-          <div className="text-right">
-            <div className={`text-2xl font-bold ${
-              totalOrders.count >= MINIMUM_ORDERS ? 'text-green-600' : 'text-red-600'
-            }`}>
-              {totalOrders.count}/{MINIMUM_ORDERS}
-            </div>
-            <div className={`text-sm ${
-              totalOrders.count >= MINIMUM_ORDERS ? 'text-green-700' : 'text-red-700'
-            }`}>
-              Orders
-            </div>
-          </div>
-        </div>
-        <div className="mt-2">
-          <p className={`text-sm ${
-            totalOrders.count >= MINIMUM_ORDERS ? 'text-green-700' : 'text-red-700'
-          }`}>
-            {totalOrders.count >= MINIMUM_ORDERS 
-              ? 'Great! We have enough orders to place a bulk order.' 
-              : `We need ${MINIMUM_ORDERS - totalOrders.count} more orders to place a bulk order through Quickly's.`
-            }
-          </p>
-        </div>
-      </div>
-
-      <div className="mb-6 p-4 bg-gradient-to-r from-purple-100 to-pink-100 rounded-lg border border-purple-200">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-purple-600" />
-            <h2 className="text-lg font-semibold text-purple-800">Today's Orders</h2>
-          </div>
-          <div className="text-right">
-            <div className="text-2xl font-bold text-purple-600">{totalOrders.count}</div>
-            <div className="text-sm text-purple-700">Total Items</div>
-          </div>
-        </div>
-        <div className="mt-2 flex justify-between items-center">
-          <span className="text-purple-700">Total Order Value:</span>
-          <span className="text-lg font-semibold text-purple-800">${totalOrders.totalValue.toFixed(2)}</span>
-        </div>
-      </div>
-
-
-      <div className="space-y-6">
-        {/* Name Field */}
-        <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Your Name *
-          </label>
-          <div className="relative">
-            <User className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
-            <input
-              type="text"
-              value={customerName}
-              onChange={(e) => setCustomerName(e.target.value)}
-              placeholder="Enter your name for the order"
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-            />
-          </div>
-        </div>
-
-        {/* Payment Method Field */}
-        <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Payment Method *
-          </label>
-          <select
-            value={paymentMethod}
-            onChange={(e) => setPaymentMethod(e.target.value)}
-            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-          >
-            <option value="venmo">Venmo (TBD)</option>
-            <option value="zelle">Zelle (TBD)</option>
-            <option value="cash">Cash (pay upon pickup)</option>
-          </select>
-          <div className="mt-2">
-            <PaymentInfo />
-          </div>
-        </div>
-
-        {/* Category Selection */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Category * <span className="text-purple-600 text-xs">(All prices include 20% discount)</span>
-          </label>
-          <select
-            value={currentOrder.category}
-            onChange={(e) => setCurrentOrder({ ...currentOrder, category: e.target.value, flavor: '', teaBase: '' })}
-            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-          >
-            <option value="">Select a category</option>
-            {Object.entries(drinkCategories).map(([category, info]) => (
-              <option key={category} value={category}>
-                {category} (${(info.price * 0.8).toFixed(2)})
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {currentOrder.category && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Flavor *
-            </label>
-            <select
-              value={currentOrder.flavor}
-              onChange={(e) => setCurrentOrder({ ...currentOrder, flavor: e.target.value })}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-            >
-              <option value="">Select a flavor</option>
-              {drinkCategories[currentOrder.category].flavors.map((flavor) => (
-                <option key={flavor} value={flavor}>{flavor}</option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {currentOrder.category && showTeaBaseOption(currentOrder.category) && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Tea Base <span className="text-gray-500 text-xs">(Optional - leave blank for default)</span>
-            </label>
-            <div className="grid grid-cols-3 gap-3">
-              <button
-                onClick={() => setCurrentOrder({ ...currentOrder, teaBase: '' })}
-                className={`p-3 border rounded-lg text-center transition-colors ${
-                  currentOrder.teaBase === ''
-                    ? 'border-gray-500 bg-gray-50 text-gray-700'
-                    : 'border-gray-300 hover:border-gray-400'
-                }`}
-              >
-                <div className="font-medium">Default</div>
-              </button>
-              {teaBases.map((base) => (
-                <button
-                  key={base}
-                  onClick={() => setCurrentOrder({ ...currentOrder, teaBase: base })}
-                  className={`p-3 border rounded-lg text-center transition-colors ${
-                    currentOrder.teaBase === base
-                      ? 'border-orange-500 bg-orange-50 text-orange-700'
-                      : 'border-gray-300 hover:border-orange-300'
-                  }`}
-                >
-                  <div className="font-medium">{base}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-        
-        {currentOrder.category && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Size
-            </label>
-            <div className="grid grid-cols-2 gap-3">
-              {['Regular', 'Large'].map((size) => (
-                <button
-                  key={size}
-                  onClick={() => setCurrentOrder({ ...currentOrder, size })}
-                  className={`p-3 border rounded-lg text-center transition-colors ${
-                    currentOrder.size === size
-                      ? 'border-purple-500 bg-purple-50 text-purple-700'
-                      : 'border-gray-300 hover:border-purple-300'
-                  }`}
-                >
-                  <div className="font-medium">{size}</div>
-                  <div className="text-sm text-gray-600">
-                    {size === 'Large' ? '+$0.68 (with discount)' : 'Standard'}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {currentOrder.category && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Ice Level
-            </label>
-            <div className="grid grid-cols-5 gap-2">
-              {iceLevels.map((level) => (
-                <button
-                  key={level}
-                  onClick={() => setCurrentOrder({ ...currentOrder, iceLevel: level })}
-                  className={`p-2 border rounded text-sm transition-colors ${
-                    currentOrder.iceLevel === level
-                      ? 'border-blue-500 bg-blue-50 text-blue-700'
-                      : 'border-gray-300 hover:border-blue-300'
-                  }`}
-                >
-                  {level}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {currentOrder.category && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Sugar Level
-            </label>
-            <div className="grid grid-cols-5 gap-2">
-              {sugarLevels.map((level) => (
-                <button
-                  key={level}
-                  onClick={() => setCurrentOrder({ ...currentOrder, sugarLevel: level })}
-                  className={`p-2 border rounded text-sm transition-colors ${
-                    currentOrder.sugarLevel === level
-                      ? 'border-pink-500 bg-pink-50 text-pink-700'
-                      : 'border-gray-300 hover:border-pink-300'
-                  }`}
-                >
-                  {level}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {currentOrder.category && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Toppings <span className="text-purple-600 text-xs">(48¢ each with discount, unless noted)</span>
-            </label>
-            <div className="grid grid-cols-2 gap-3">
-              {toppings.map((topping) => (
-                <button
-                  key={topping}
-                  onClick={() => handleToppingChange(topping)}
-                  className={`p-3 border rounded-lg text-left transition-colors ${
-                    currentOrder.toppings.includes(topping)
-                      ? 'border-green-500 bg-green-50 text-green-700'
-                      : 'border-gray-300 hover:border-green-300'
-                  }`}
-                >
-                  <div className="font-medium text-sm">{topping}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Quantity
-          </label>
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => updateQuantity(-1)}
-              className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-            >
-              <Minus className="w-4 h-4" />
-            </button>
-            <span className="text-xl font-medium px-4">{currentOrder.quantity}</span>
-            <button
-              onClick={() => updateQuantity(1)}
-              className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-            >
-              <Plus className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
+        {/* Floating My Orders button, bottom left */}
         <button
-          onClick={addToCart}
-          disabled={!currentOrder.category || !currentOrder.flavor || (requiresTeaBase(currentOrder.category) && !currentOrder.teaBase) || loading}
-          className="w-full bg-purple-600 text-white py-4 rounded-lg font-medium hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+          onClick={() => setShowOrderList(true)}
+          className="fixed bottom-6 right-6 bg-blue-600 text-white px-4 py-2 rounded-full hover:bg-blue-700 transition-colors shadow-lg flex items-center gap-2 text-sm z-10"
+          disabled={ENABLE_ORDER_TIME_RESTRICTION && !isOrderingOpen()}
         >
-          {loading ? 'Adding...' : `Add to Cart - ${currentOrder.category && currentOrder.flavor ? calculateItemPrice(currentOrder).toFixed(2) : '0.00'}`}
+          All orders
         </button>
       </div>
 
-      {cart.length > 0 && (
-        <div className="mt-8 p-4 bg-gray-50 rounded-lg">
-          <h3 className="font-medium text-gray-800 mb-2">Cart Preview ({cart.length} items):</h3>
-          {cart.slice(-2).map((item) => (
-            <div key={item.id} className="flex justify-between items-center text-sm text-gray-600 mb-1">
-              <span>
-                {item.flavor} ({item.category})
-                {item.teaBase && ` - ${item.teaBase}`} x{item.quantity}
-              </span>
+      {/* Show order form and popups only if ordering is open, or if restriction is disabled */}
+      {(!ENABLE_ORDER_TIME_RESTRICTION || isOrderingOpen()) ? (
+        <>
+          {showPasswordModal && <PasswordModal />}
+          {/* ...existing code for order status, stats, and form... */}
+          {/* Minimum Orders Banner */}
+          <div className={`mb-6 p-4 rounded-lg border ${
+            totalOrders.count >= MINIMUM_ORDERS 
+              ? 'bg-green-100 border-green-200' 
+              : 'bg-red-100 border-red-200'
+          }`}>
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span>${item.price.toFixed(2)}</span>
-                <button
-                  onClick={() => removeFromCart(item.id)}
-                  className="text-red-500 hover:text-red-700"
+                <span className={`text-lg font-semibold ${
+                  totalOrders.count >= MINIMUM_ORDERS ? 'text-green-800' : 'text-red-800'
+                }`}>
+                  {totalOrders.count >= MINIMUM_ORDERS ? '✅ Minimum Orders Met!' : '⚠️ Minimum Orders Required'}
+                </span>
+              </div>
+              <div className="text-right">
+                <div className={`text-2xl font-bold ${
+                  totalOrders.count >= MINIMUM_ORDERS ? 'text-green-600' : 'text-red-600'
+                }`}>
+                  {totalOrders.count}/{MINIMUM_ORDERS}
+                </div>
+                <div className={`text-sm ${
+                  totalOrders.count >= MINIMUM_ORDERS ? 'text-green-700' : 'text-red-700'
+                }`}>
+                  Orders
+                </div>
+              </div>
+            </div>
+            <div className="mt-2">
+              <p className={`text-sm ${
+                totalOrders.count >= MINIMUM_ORDERS ? 'text-green-700' : 'text-red-700'
+              }`}>
+                {totalOrders.count >= MINIMUM_ORDERS 
+                  ? 'Great! We have enough orders to place a bulk order.' 
+                  : `We need ${MINIMUM_ORDERS - totalOrders.count} more orders to place a bulk order through Quickly's.`
+                }
+              </p>
+            </div>
+          </div>
+
+          {/* Order Stats Banner */}
+          <div className="mb-6 p-4 bg-gradient-to-r from-purple-100 to-pink-100 rounded-lg border border-purple-200">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="w-5 h-5 text-purple-600" />
+                <h2 className="text-lg font-semibold text-purple-800">Today's Orders</h2>
+              </div>
+              <div className="text-right">
+                <div className="text-2xl font-bold text-purple-600">{totalOrders.count}</div>
+                <div className="text-sm text-purple-700">Total Items</div>
+              </div>
+            </div>
+            <div className="mt-2 flex justify-between items-center">
+              <span className="text-purple-700">Total Order Value:</span>
+              <span className="text-lg font-semibold text-purple-800">${totalOrders.totalValue.toFixed(2)}</span>
+            </div>
+          </div>
+
+          {/* ...existing code for the order form, cart preview, etc... */}
+          <div className="space-y-6">
+            {/* Name Field */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Your Name *
+              </label>
+              <div className="relative">
+                <User className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  placeholder="Enter your name for the order"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+
+            {/* Payment Method Field */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Payment Method *
+              </label>
+              <select
+                value={paymentMethod}
+                onChange={(e) => setPaymentMethod(e.target.value)}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              >
+                <option value="venmo">Venmo (@megcherry63)</option>
+                <option value="zelle">Zelle (Talk to us at pickup)</option>
+              </select>
+              <div className="mt-2">
+                <PaymentInfo />
+              </div>
+            </div>
+
+            {/* Category Selection */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Category * <span className="text-purple-600 text-xs">(All prices include 20% discount)</span>
+              </label>
+              <select
+                value={currentOrder.category}
+                onChange={(e) => {
+                  const newCategory = e.target.value;
+                  setCurrentOrder({
+                    ...currentOrder,
+                    category: newCategory,
+                    flavor: '',
+                    teaBase: teaCategories.includes(newCategory) ? 'Black Tea' : ''
+                  });
+                }}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              >
+                <option value="">Select a category</option>
+                {Object.entries(drinkCategories).map(([category, info]) => (
+                  <option key={category} value={category}>
+                    {category} (${(info.price * 0.8).toFixed(2)})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {currentOrder.category && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Flavor *
+                </label>
+                <select
+                  value={currentOrder.flavor}
+                  onChange={(e) => setCurrentOrder({ ...currentOrder, flavor: e.target.value })}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 >
-                  <X className="w-3 h-3" />
+                  <option value="">Select a flavor</option>
+                  {drinkCategories[currentOrder.category].flavors.map((flavor) => (
+                    <option key={flavor} value={flavor}>{flavor}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {currentOrder.category && showTeaBaseOption(currentOrder.category) && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Tea Base *
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  {teaBases.map((base) => (
+                    <button
+                      key={base}
+                      onClick={() => setCurrentOrder({ ...currentOrder, teaBase: base })}
+                      className={`p-3 border rounded-lg text-center transition-colors ${
+                        currentOrder.teaBase === base
+                          ? 'border-orange-500 bg-orange-50 text-orange-700'
+                          : 'border-gray-300 hover:border-orange-300'
+                      }`}
+                    >
+                      <div className="font-medium">{base}</div>
+                    </button>
+                  ))}
+                </div>
+                {!currentOrder.teaBase && (
+                  <div className="text-red-600 text-xs mt-1">Please select a tea base.</div>
+                )}
+              </div>
+            )}
+
+            {currentOrder.category && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Size
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  {['Regular', 'Large'].map((size) => (
+                    <button
+                      key={size}
+                      onClick={() => setCurrentOrder({ ...currentOrder, size })}
+                      className={`p-3 border rounded-lg text-center transition-colors ${
+                        currentOrder.size === size
+                          ? 'border-purple-500 bg-purple-50 text-purple-700'
+                          : 'border-gray-300 hover:border-purple-300'
+                      }`}
+                    >
+                      <div className="font-medium">{size}</div>
+                      <div className="text-sm text-gray-600">
+                        {size === 'Large' ? '+$0.68 (with discount)' : 'Standard'}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {currentOrder.category && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Ice Level
+                </label>
+                <div className="grid grid-cols-5 gap-2">
+                  {iceLevels.map((level) => (
+                    <button
+                      key={level}
+                      onClick={() => setCurrentOrder({ ...currentOrder, iceLevel: level })}
+                      className={`p-2 border rounded text-sm transition-colors ${
+                        currentOrder.iceLevel === level
+                          ? 'border-blue-500 bg-blue-50 text-blue-700'
+                          : 'border-gray-300 hover:border-blue-300'
+                      }`}
+                    >
+                      {level}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {currentOrder.category && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Sugar Level
+                </label>
+                <div className="grid grid-cols-5 gap-2">
+                  {sugarLevels.map((level) => (
+                    <button
+                      key={level}
+                      onClick={() => setCurrentOrder({ ...currentOrder, sugarLevel: level })}
+                      className={`p-2 border rounded text-sm transition-colors ${
+                        currentOrder.sugarLevel === level
+                          ? 'border-pink-500 bg-pink-50 text-pink-700'
+                          : 'border-gray-300 hover:border-pink-300'
+                      }`}
+                    >
+                      {level}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {currentOrder.category && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Toppings <span className="text-purple-600 text-xs">(48¢ each with discount, unless noted)</span>
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  {toppings.map((topping) => (
+                    <button
+                      key={topping}
+                      onClick={() => handleToppingChange(topping)}
+                      className={`p-3 border rounded-lg text-left transition-colors ${
+                        currentOrder.toppings.includes(topping)
+                          ? 'border-green-500 bg-green-50 text-green-700'
+                          : 'border-gray-300 hover:border-green-300'
+                      }`}
+                    >
+                      <div className="font-medium text-sm">{topping}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Quantity
+              </label>
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={() => updateQuantity(-1)}
+                  className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  <Minus className="w-4 h-4" />
+                </button>
+                <span className="text-xl font-medium px-4">{currentOrder.quantity}</span>
+                <button
+                  onClick={() => updateQuantity(1)}
+                  className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  <Plus className="w-4 h-4" />
                 </button>
               </div>
             </div>
-          ))}
-          {cart.length > 2 && (
-            <div className="text-xs text-gray-500">...and {cart.length - 2} more items</div>
-          )}
-          <div className="border-t pt-2 mt-2 space-y-1">
-            <div className="flex justify-between text-sm text-gray-600">
-              <span>Subtotal:</span>
-              <span>${getTotalPrice().toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between text-sm text-gray-600">
-              <span>Tax (7.5%):</span>
-              <span>${getSalesTax().toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between font-medium text-purple-600 border-t pt-1">
-              <span>Total:</span>
-              <span>${getFinalTotal().toFixed(2)}</span>
-            </div>
+
+            <button
+              onClick={addToCart}
+              disabled={!currentOrder.category || !currentOrder.flavor || (requiresTeaBase(currentOrder.category) && !currentOrder.teaBase) || loading}
+              className="w-full bg-purple-600 text-white py-4 rounded-lg font-medium hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+            >
+              {loading ? 'Adding...' : `Add to Cart - ${currentOrder.category && currentOrder.flavor ? calculateItemPrice(currentOrder).toFixed(2) : '0.00'}`}
+            </button>
           </div>
+
+          {cart.length > 0 && (
+            <div className="mt-8 p-4 bg-gray-50 rounded-lg">
+              <h3 className="font-medium text-gray-800 mb-2">Cart Preview ({cart.length} items):</h3>
+              {cart.slice(-2).map((item) => (
+                <div key={item.id} className="flex justify-between items-center text-sm text-gray-600 mb-1">
+                  <span>
+                    {item.flavor} ({item.category})
+                    {item.teaBase && ` - ${item.teaBase}`} x{item.quantity}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span>${item.price.toFixed(2)}</span>
+                    <button
+                      onClick={() => removeFromCart(item.id)}
+                      className="text-red-500 hover:text-red-700"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {cart.length > 2 && (
+                <div className="text-xs text-gray-500">...and {cart.length - 2} more items</div>
+              )}
+              <div className="border-t pt-2 mt-2 space-y-1">
+                <div className="flex justify-between text-sm text-gray-600">
+                  <span>Subtotal:</span>
+                  <span>${getTotalPrice().toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-sm text-gray-600">
+                  <span>Tax (7.5%):</span>
+                  <span>${getSalesTax().toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between font-medium text-purple-600 border-t pt-1">
+                  <span>Total:</span>
+                  <span>${getFinalTotal().toFixed(2)}</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="flex flex-col items-center justify-center mt-16">
+          <div className="text-2xl font-bold text-red-600 mb-4">Ordering is currently closed.</div>
+          <div className="text-gray-700 text-center mb-6">Please check back during the designated ordering period.<br/>Orders are open Tuesdays & Wednesdays 8:30 AM - 1:30 PM.</div>
         </div>
       )}
 
