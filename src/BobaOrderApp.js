@@ -1221,6 +1221,7 @@ const BobaOrderApp = () => {
           </div>
         </div>
         <div className="flex gap-2">
+          {/* Admin button is always enabled */}
           <button
             onClick={handleAdminClick}
             className="flex items-center gap-2 bg-red-600 text-white px-3 py-2 rounded-lg hover:bg-red-700 transition-colors text-sm"
@@ -1230,7 +1231,7 @@ const BobaOrderApp = () => {
           </button>
           <button
             onClick={() => setShowCheckout(true)}
-            className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors"
+            className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={cart.length === 0 || (ENABLE_ORDER_TIME_RESTRICTION && !isOrderingOpen())}
           >
             <ShoppingCart className="w-4 h-4" />
@@ -1238,17 +1239,18 @@ const BobaOrderApp = () => {
           </button>
         </div>
 
-        {/* Floating My Orders button, bottom left */}
+        {/* Floating My Orders button, always enabled */}
         <button
           onClick={() => setShowOrderList(true)}
           className="fixed bottom-6 right-6 bg-blue-600 text-white px-4 py-2 rounded-full hover:bg-blue-700 transition-colors shadow-lg flex items-center gap-2 text-sm z-10"
-          disabled={ENABLE_ORDER_TIME_RESTRICTION && !isOrderingOpen()}
         >
           All orders
         </button>
       </div>
 
-      {/* Show order form and popups only if ordering is open, or if restriction is disabled */}
+      {/* Always show password modal, but only show order form if time restriction allows */}
+      {showPasswordModal && <PasswordModal />}
+      {/* Show order form only if ordering is open, or if restriction is disabled */}
       {(!ENABLE_ORDER_TIME_RESTRICTION || isOrderingOpen()) ? (
         <>
           {showPasswordModal && <PasswordModal />}
