@@ -156,16 +156,13 @@ const BobaOrderApp = () => {
         return;
       }
 
-      // Reassign order numbers sequentially
-      const ordersWithSequentialNumbers = (data || []).map((order, index) => ({
-        ...order,
-        order_number: index + 1
-      }));
-
-      setAllOrders(ordersWithSequentialNumbers);
+      // Keep existing order numbers and data
+      setAllOrders(data || []);
       
-      // Set next order counter
-      setOrderCounter((ordersWithSequentialNumbers.length || 0) + 1);
+      // Set the next order counter based on the highest existing order number
+      const maxOrderNumber = (data || []).reduce((max, order) => 
+        Math.max(max, order.order_number || 0), 0);
+      setOrderCounter(maxOrderNumber + 1);
     } catch (error) {
       console.error('Error loading orders:', error);
       console.error(`Connection error: ${error.message}. Please check your internet connection and Supabase configuration.`);
@@ -1014,6 +1011,30 @@ const BobaOrderApp = () => {
         );
         
         await Promise.all(promises);
+        
+        // Update local state to reflect the changes
+        setCart(prevCart => 
+          prevCart.map(item => ({
+            ...item,
+            customer_name: customerName,
+            payment_method: paymentMethod
+          }))
+        );
+        
+        setAllOrders(prevOrders =>
+          prevOrders.map(order => 
+            cart.some(item => item.id === order.id)
+              ? {
+                  ...order,
+                  customer_name: customerName,
+                  payment_method: paymentMethod
+                }
+              : order
+          )
+        );
+
+        // Reset cart and show success message
+        setCart([]);
         alert('Order submitted successfully! Please check your order in the All Orders tab.');
         setShowCheckout(false);
       } catch (error) {
