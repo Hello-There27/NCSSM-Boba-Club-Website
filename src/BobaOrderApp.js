@@ -286,7 +286,7 @@ const BobaOrderApp = () => {
 
   // Toggle this to enable/disable time-based ordering restriction
   // Set to false to always allow ordering (for testing or special events)
-  const ENABLE_ORDER_TIME_RESTRICTION = false;
+  const ENABLE_ORDER_TIME_RESTRICTION = true;
 
   // Only allow ordering during specific days/times if enabled
   const isOrderingOpen = () => {
