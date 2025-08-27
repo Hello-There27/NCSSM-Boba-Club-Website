@@ -19,7 +19,7 @@ const BobaOrderApp = () => {
     crystalBoba: false,
     quantity: 1
   });
-  const [paymentMethod, setPaymentMethod] = useState('venmo');
+  const [paymentMethod, setPaymentMethod] = useState('');
   const [showCheckout, setShowCheckout] = useState(false);
   const [customerName, setCustomerName] = useState('');
   
@@ -39,7 +39,6 @@ const BobaOrderApp = () => {
   const [showAbout, setShowAbout] = useState(false);
   const [showOrderList, setShowOrderList] = useState(false);
   // Additional info for order (not required, not in CSV)
-  const [additionalInfo, setAdditionalInfo] = useState('');
   const [connectionStatus, setConnectionStatus] = useState('unknown'); // 'connected', 'disconnected', 'testing', 'unknown'
   
   const ADMIN_PASSWORD = "bobaadmin123";
@@ -54,47 +53,37 @@ const BobaOrderApp = () => {
     loadOrderStats();
   }, []);
 
-  // Auto-delete orders pending for over 15 minutes
+  // Auto-delete orders pending for over 15 minutes and clean up local state
   useEffect(() => {
-    const interval = setInterval(() => {
+    const cleanup = async () => {
+      const { error } = await supabase
+        .from('orders')
+        .delete()
+        .lt('timestamp', new Date(Date.now() - 15 * 60 * 1000).toISOString())
+        .is('paid', false)
+        .is('picked_up', false);
+      
+      if (error) {
+        console.error('Error cleaning up old orders:', error);
+        return;
+      }
+      
+      // Clean up local state
       setAllOrders(prevOrders => {
         const now = new Date();
         return prevOrders.filter(order => {
           if (!order.timestamp || order.paid || order.pickedUp) return true;
           const orderTime = new Date(order.timestamp);
           const diffMinutes = (now - orderTime) / 60000;
-          if (diffMinutes > 15) {
-            if (order.id) {
-              supabase.from('orders').delete().eq('id', order.id);
-            }
-            return false;
-          }
-          return true;
+          return diffMinutes <= 15;
         });
       });
-    }, 60000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Auto-delete orders pending for over 15 minutes
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setAllOrders(prevOrders => {
-        const now = new Date();
-        return prevOrders.filter(order => {
-          if (!order.timestamp || order.paid || order.pickedUp) return true;
-          const orderTime = new Date(order.timestamp);
-          const diffMinutes = (now - orderTime) / 60000;
-          if (diffMinutes > 15) {
-            if (order.id) {
-              supabase.from('orders').delete().eq('id', order.id);
-            }
-            return false;
-          }
-          return true;
-        });
-      });
-    }, 60000);
+    };
+    
+    // Run cleanup every minute
+    const interval = setInterval(cleanup, 60000);
+    cleanup(); // Run once when component mounts
+    
     return () => clearInterval(interval);
   }, []);
 
@@ -140,33 +129,24 @@ const BobaOrderApp = () => {
 
   // Load all orders from Supabase
   const loadOrdersFromDatabase = async () => {
-    try {
-      console.log('Loading orders from Supabase...');
-      
-      const { data, error } = await supabase
-        .from('orders')
-        .select('*')
-        .order('created_at', { ascending: false });
+    const { data, error } = await supabase
+      .from('orders')
+      .select('*')
+      .order('created_at', { ascending: false });
 
-      console.log('Supabase response:', { data, error });
-
-      if (error) {
-        console.error('Error loading orders:', error);
-        console.error(`Database error: ${error.message}. Please check your Supabase setup.`);
-        return;
-      }
-
-      // Keep existing order numbers and data
-      setAllOrders(data || []);
-      
-      // Set the next order counter based on the highest existing order number
-      const maxOrderNumber = (data || []).reduce((max, order) => 
-        Math.max(max, order.order_number || 0), 0);
-      setOrderCounter(maxOrderNumber + 1);
-    } catch (error) {
+    if (error) {
       console.error('Error loading orders:', error);
-      console.error(`Connection error: ${error.message}. Please check your internet connection and Supabase configuration.`);
+      console.error(`Database error: ${error.message}. Please check your Supabase setup.`);
+      return;
     }
+
+    // Keep existing order numbers and data
+    setAllOrders(data || []);
+    
+    // Set the next order counter based on the highest existing order number
+    const maxOrderNumber = (data || []).reduce((max, order) => 
+      Math.max(max, order.order_number || 0), 0);
+    setOrderCounter(maxOrderNumber + 1);
   };
 
   // Load order statistics from Supabase
@@ -199,66 +179,7 @@ const BobaOrderApp = () => {
     }));
   };
 
-  // Save order to Supabase
-  const saveOrderToDatabase = async (orderData) => {
-    try {
-      console.log('Attempting to save order:', orderData);
-      
-      const orderToInsert = {
-        order_number: orderData.orderNumber,
-        customer_name: orderData.customerName || 'Pending',
-        category: orderData.category,
-        flavor: orderData.flavor,
-        tea_base: orderData.teaBase || null, // New field
-        size: orderData.size,
-        ice_level: orderData.iceLevel,
-        sugar_level: orderData.sugarLevel,
-        toppings: orderData.toppings,
-        crystal_boba: orderData.crystalBoba,
-        quantity: orderData.quantity,
-        price: orderData.price,
-        payment_method: orderData.paymentMethod || 'Not Selected'
-      };
-
-      console.log('Data to insert:', orderToInsert);
-
-      const { data, error } = await supabase
-        .from('orders')
-        .insert([orderToInsert])
-        .select();
-
-      console.log('Supabase insert response:', { data, error });
-
-      if (error) {
-        console.error('Supabase error details:', error);
-        console.error(`Failed to save order: ${error.message}`);
-        return null;
-      }
-
-      console.log('Order saved successfully:', data[0]);
-      return data[0];
-    } catch (error) {
-      console.error('Caught error while saving:', error);
-      alert(`Something went wrong: ${error.message}`);
-      return null;
-    }
-  };
-
-  // Update order in Supabase
-  const updateOrderInDatabase = async (orderId, updates) => {
-    try {
-      const { error } = await supabase
-        .from('orders')
-        .update(updates)
-        .eq('id', orderId);
-
-      if (error) {
-        console.error('Error updating order:', error);
-      }
-    } catch (error) {
-      console.error('Error updating order:', error);
-    }
-  };
+  // No longer needed - all database operations are done in handleSubmitOrder
 
   // Your existing drink categories and other constants remain the same
   const drinkCategories = {
@@ -365,7 +286,7 @@ const BobaOrderApp = () => {
 
   // Toggle this to enable/disable time-based ordering restriction
   // Set to false to always allow ordering (for testing or special events)
-  const ENABLE_ORDER_TIME_RESTRICTION = true;
+  const ENABLE_ORDER_TIME_RESTRICTION = false;
 
   // Only allow ordering during specific days/times if enabled
   const isOrderingOpen = () => {
@@ -431,8 +352,8 @@ const BobaOrderApp = () => {
     return taxed;
   };
 
-  // Updated addToCart function
-  const addToCart = async () => {
+  // Updated addToCart function - only updates local state
+  const addToCart = () => {
     if (!currentOrder.category || !currentOrder.flavor) {
       alert('Please select a drink category and flavor');
       return;
@@ -442,9 +363,9 @@ const BobaOrderApp = () => {
     
     const orderWithId = {
       ...currentOrder,
-      id: Date.now(),
+      id: `temp_${Date.now()}`, // Temporary ID until order is submitted
       price: calculateItemPrice(currentOrder),
-      orderNumber: orderCounter,
+      orderNumber: null, // Will be assigned when submitted
       customerName: 'Pending',
       paymentMethod: 'Not Selected',
       timestamp: new Date().toISOString(),
@@ -452,70 +373,28 @@ const BobaOrderApp = () => {
       pickedUp: false
     };
     
-    // Save to database first
-    const savedOrder = await saveOrderToDatabase(orderWithId);
+    // Only update cart - don't save to database yet
+    setCart([...cart, orderWithId]);
     
-    if (savedOrder) {
-      // Update local state
-      setCart([...cart, { ...orderWithId, id: savedOrder.id }]);
-      setAllOrders(prev => [savedOrder, ...prev]);
-      
-      // Update stats
-      setTotalOrders(prev => ({
-        count: prev.count + currentOrder.quantity,
-        totalValue: prev.totalValue + orderWithId.price
-      }));
-      
-      setOrderCounter(prev => prev + 1);
-      
-      // Reset form
-      setCurrentOrder({
-        category: '',
-        flavor: '',
-        teaBase: '',
-        size: 'Regular',
-        iceLevel: '50%',
-        sugarLevel: '50%',
-        toppings: [],
-        crystalBoba: false,
-        quantity: 1
-      });
-    }
+    // Reset form
+    setCurrentOrder({
+      category: '',
+      flavor: '',
+      teaBase: '',
+      size: 'Regular',
+      iceLevel: '50%',
+      sugarLevel: '50%',
+      toppings: [],
+      crystalBoba: false,
+      quantity: 1
+    });
     
     setLoading(false);
   };
 
-  // Updated removeFromCart function
-  const removeFromCart = async (id) => {
-    const itemToRemove = cart.find(item => item.id === id);
-    if (itemToRemove) {
-      // Remove from database
-      const { error } = await supabase
-        .from('orders')
-        .delete()
-        .eq('id', id);
-
-      if (!error) {
-        // Update local state
-        setTotalOrders(prev => ({
-          count: prev.count - itemToRemove.quantity,
-          totalValue: Math.max(0, prev.totalValue - itemToRemove.price)
-        }));
-        
-        // Remove from all orders and reassign numbers
-        const updatedOrders = allOrders.filter(order => order.id !== id);
-        const reorderedOrders = reassignOrderNumbers(updatedOrders);
-        setAllOrders(reorderedOrders);
-        
-        setCart(cart.filter(item => item.id !== id));
-        
-        // Update order counter
-        setOrderCounter(reorderedOrders.length + 1);
-      } else {
-        console.error('Error removing order:', error);
-        alert(`Failed to remove order: ${error.message}`);
-      }
-    }
+  // Updated removeFromCart function - only removes from cart, no database operations
+  const removeFromCart = (id) => {
+    setCart(prevCart => prevCart.filter(item => item.id !== id));
   };
 
   const updateQuantity = (change) => {
@@ -610,17 +489,31 @@ const BobaOrderApp = () => {
           alert(`Failed to delete completed order: ${error.message}`);
         }
       } else {
-        // Just update the field in database
-        await updateOrderInDatabase(orderId, { [field]: newValue });
-        
-        // Update local state
-        setAllOrders(prev => 
-          prev.map(order => 
-            order.id === orderId 
-              ? { ...order, [field]: newValue }
-              : order
-          )
-        );
+        // Update the field in database directly
+        try {
+          const { error } = await supabase
+            .from('orders')
+            .update({ [field]: newValue })
+            .eq('id', orderId);
+            
+          if (error) {
+            console.error('Error updating order:', error);
+            alert(`Failed to update order: ${error.message}`);
+            return;
+          }
+          
+          // Update local state
+          setAllOrders(prev => 
+            prev.map(order => 
+              order.id === orderId 
+                ? { ...order, [field]: newValue }
+                : order
+            )
+          );
+        } catch (error) {
+          console.error('Error updating order:', error);
+          alert(`Failed to update order status: ${error.message}`);
+        }
       }
     }
   };
@@ -632,9 +525,20 @@ const BobaOrderApp = () => {
 
   const PaymentInfo = () => {
     const paymentDetails = {
-      venmo: { info: '@megcherry63', note: 'Indicate the payment is for Boba' },
+      venmo: { info: '@megcherry63', note: 'Indicate the payment is for Boba, First 4 digits are 4363' },
       zelle: { info: 'Talk to us at pickup', note: 'Include the payment is for Boba' },
     };
+
+    // If no payment method is selected, show default message
+    if (!paymentMethod || !paymentDetails[paymentMethod]) {
+      return (
+        <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
+          <div className="flex items-center gap-2 text-lg font-medium mb-2 text-purple-800">
+            <span>Please select a payment method</span>
+          </div>
+        </div>
+      );
+    }
 
     const current = paymentDetails[paymentMethod];
     
@@ -999,49 +903,89 @@ const BobaOrderApp = () => {
         alert('Please enter your name');
         return;
       }
+
+      if (!paymentMethod) {
+        alert('Please select a payment method');
+        return;
+      }
       
       setLoading(true);
       try {
-        // Update all cart items with customer name and payment method
-        const promises = cart.map(item => 
-          updateOrderInDatabase(item.id, {
-            customer_name: customerName,
-            payment_method: paymentMethod
-          })
-        );
+        const timestamp = new Date().toISOString();
         
-        await Promise.all(promises);
+        console.log('Current cart state:', cart);
         
-        // Update local state to reflect the changes
-        setCart(prevCart => 
-          prevCart.map(item => ({
-            ...item,
-            customer_name: customerName,
-            payment_method: paymentMethod
-          }))
-        );
+        console.log('Current payment method:', paymentMethod);
         
-        setAllOrders(prevOrders =>
-          prevOrders.map(order => 
-            cart.some(item => item.id === order.id)
-              ? {
-                  ...order,
-                  customer_name: customerName,
-                  payment_method: paymentMethod
-                }
-              : order
-          )
-        );
-
-        // Reset cart and show success message
-        setCart([]);
-        alert('Order submitted successfully! Please check your order in the All Orders tab.');
-        setShowCheckout(false);
+        // Format all orders for saving
+        const ordersToSave = cart.map((item, index) => ({
+          order_number: orderCounter + index,
+          customer_name: customerName.trim(),
+          payment_method: paymentMethod || 'Not Selected', // Ensure we have a default value
+          category: item.category,
+          flavor: item.flavor,
+          tea_base: item.teaBase || null,
+          size: item.size,
+          ice_level: item.iceLevel || item.ice_level,
+          sugar_level: item.sugarLevel || item.sugar_level,
+          toppings: item.toppings || [],
+          crystal_boba: item.crystalBoba || item.crystal_boba || false,
+          quantity: item.quantity || 1,
+          price: parseFloat(item.price.toFixed(2)),
+          created_at: timestamp,
+          picked_up: false,
+          paid: false
+        }));
+        
+        console.log('Attempting to save orders:', ordersToSave);
+        
+        // Save all orders in a single batch
+        const { data: savedOrders, error } = await supabase
+          .from('orders')
+          .insert(ordersToSave)
+          .select();
+          
+        if (error) {
+          console.error('Supabase error details:', error);
+          throw new Error(`Failed to save order: ${error.message} (${error.code})`);
+        }
+        
+        // Update UI with saved orders
+        if (savedOrders && savedOrders.length > 0) {
+          // Update allOrders
+          setAllOrders(prev => [...savedOrders, ...prev]);
+          
+          // Update order counts and totals
+          const newItemCount = savedOrders.reduce((sum, order) => sum + (order.quantity || 1), 0);
+          const newTotalValue = savedOrders.reduce((sum, order) => sum + order.price, 0);
+          
+          setTotalOrders(prev => ({
+            count: prev.count + newItemCount,
+            totalValue: prev.totalValue + newTotalValue
+          }));
+          
+          // Clear the cart
+          setCart([]);
+          
+          // Reset form fields
+          setCustomerName('');
+          setPaymentMethod('');
+          
+          // Update order counter
+          setOrderCounter(prev => prev + savedOrders.length);
+          
+          // Show success message and close checkout
+          alert('Order submitted successfully!');
+          setShowCheckout(false);
+        } else {
+          alert('Failed to submit order. Please try again.');
+        }
       } catch (error) {
-        console.error('Error submitting order:', error);
-        alert('There was an error submitting your order. Please try again.');
+        console.error('Error submitting order:', error.message);
+        alert(`Error submitting order: ${error.message}. Please try again.`);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
     return (
@@ -1127,6 +1071,7 @@ const BobaOrderApp = () => {
                 className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 required
               >
+                <option value="">Select payment method</option>
                 <option value="venmo">Venmo (@megcherry63)</option>
                 <option value="zelle">Zelle (Talk to us at pickup)</option>
               </select>
@@ -1589,6 +1534,8 @@ const BobaOrderApp = () => {
         <div className="flex flex-col items-center justify-center mt-16">
           <div className="text-2xl font-bold text-red-600 mb-4">Ordering is currently closed.</div>
           <div className="text-gray-700 text-center mb-6">Please check back during the designated ordering period.<br/>Orders are open Tuesdays & Wednesdays 8:30 AM - 1:30 PM.</div>
+          <div className="text-2xl font-bold text-blue-600 mb-4">Payment Information:</div>
+          <div className="text-gray-700 text-center mb-6">Venmo handle: @megcherry63<br/>First 4 digits: 4363<br/>If paying Zelle, ask for info during pickup.</div>
         </div>
       )}
 
