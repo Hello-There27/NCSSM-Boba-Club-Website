@@ -29,20 +29,149 @@ const BobaOrderApp = () => {
     totalValue: 0
   });
   
-  // Admin mode state
-  const [isAdminMode, setIsAdminMode] = useState(false);
-  const [allOrders, setAllOrders] = useState([]);
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [passwordInput, setPasswordInput] = useState('');
-  const [orderCounter, setOrderCounter] = useState(1);
-  const [loading, setLoading] = useState(false);
-  const [showAbout, setShowAbout] = useState(false);
-  const [showOrderList, setShowOrderList] = useState(false);
-  // Additional info for order (not required, not in CSV)
-  const [connectionStatus, setConnectionStatus] = useState('unknown'); // 'connected', 'disconnected', 'testing', 'unknown'
+// Admin mode state
+const [isAdminMode, setIsAdminMode] = useState(false);
+const [allOrders, setAllOrders] = useState([]);
+const [showPasswordModal, setShowPasswordModal] = useState(false);
+const [passwordInput, setPasswordInput] = useState('');
+const [orderCounter, setOrderCounter] = useState(1);
+const [loading, setLoading] = useState(false);
+const [showAbout, setShowAbout] = useState(false);
+const [showOrderList, setShowOrderList] = useState(false);
+const [connectionStatus, setConnectionStatus] = useState('unknown');
+
+// Enhanced security state
+const [adminSession, setAdminSession] = useState(null);
+const [loginAttempts, setLoginAttempts] = useState(0);
+const [isLocked, setIsLocked] = useState(false);
+const [lockoutExpiry, setLockoutExpiry] = useState(null);
+
+// Enhanced Security Configuration
+const SECURITY_CONFIG = {
+  MAX_LOGIN_ATTEMPTS: 3,
+  LOCKOUT_DURATION: 15 * 60 * 1000, // 15 minutes
+  SESSION_DURATION: 2 * 60 * 60 * 1000, // 2 hours
+  RATE_LIMIT_WINDOW: 60 * 1000, // 1 minute
+  MAX_REQUESTS_PER_MINUTE: 5
+};
+
+// Security helper functions
+const loadSecurityState = () => {
+  try {
+    const stored = JSON.parse(localStorage.getItem('adminSecurity') || '{}');
+    if (stored.lockoutExpiry && new Date(stored.lockoutExpiry) > new Date()) {
+      setIsLocked(true);
+      setLockoutExpiry(new Date(stored.lockoutExpiry));
+      setLoginAttempts(stored.attempts || 0);
+    } else {
+      // Clear expired lockout
+      localStorage.removeItem('adminSecurity');
+    }
+  } catch (error) {
+    console.error('Error loading security state:', error);
+  }
+};
+
+const saveSecurityState = (attempts, expiry = null) => {
+  const securityData = {
+    attempts,
+    lockoutExpiry: expiry,
+    timestamp: new Date().toISOString()
+  };
+  localStorage.setItem('adminSecurity', JSON.stringify(securityData));
+};
+
+const checkExistingSession = () => {
+  try {
+    const sessionData = JSON.parse(localStorage.getItem('adminSession') || '{}');
+    if (sessionData.token && sessionData.expiry) {
+      const expiryDate = new Date(sessionData.expiry);
+      if (expiryDate > new Date()) {
+        setAdminSession(sessionData);
+        setIsAdminMode(true);
+      } else {
+        localStorage.removeItem('adminSession');
+      }
+    }
+  } catch (error) {
+    console.error('Error checking session:', error);
+  }
+};
+
+const createAdminSession = () => {
+  const sessionToken = crypto.getRandomValues(new Uint8Array(32));
+  const tokenHex = Array.from(sessionToken).map(b => b.toString(16).padStart(2, '0')).join('');
+  const expiry = new Date(Date.now() + SECURITY_CONFIG.SESSION_DURATION);
   
-  const ADMIN_PASSWORD = "bobaadmin123";
-  const MINIMUM_ORDERS = 20;
+  const session = {
+    token: tokenHex,
+    expiry: expiry.toISOString(),
+    created: new Date().toISOString()
+  };
+  
+  setAdminSession(session);
+  localStorage.setItem('adminSession', JSON.stringify(session));
+  return session;
+};
+
+const clearAdminSession = () => {
+  setAdminSession(null);
+  setIsAdminMode(false);
+  localStorage.removeItem('adminSession');
+};
+
+// Backend authentication function
+const verifyAdminPassword = async (password) => {
+  try {
+    // Try environment variable first, fallback to hash comparison
+    const envHash = process.env.REACT_APP_ADMIN_PASSWORD_HASH;
+    
+    if (envHash) {
+      // Use environment variable hash
+      const encoder = new TextEncoder();
+      const data = encoder.encode(password);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      return hashHex === envHash;
+    } else {
+      // Fallback to hardcoded hash (less secure but works without env vars)
+      const encoder = new TextEncoder();
+      const data = encoder.encode(password);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      
+      // hash of password
+      const fallbackHash = "d633bc94bbfb8c30f53e42b6ae9e83b23df5fb945c1574391183802eedc8a7c9";
+      return hashHex === fallbackHash;
+    }
+  } catch (error) {
+    console.error('Password verification error:', error);
+    return false;
+  }
+};
+
+// Try Supabase RPC authentication if available
+const verifyWithSupabase = async (password) => {
+  try {
+    const { data, error } = await supabase.rpc('verify_admin_password', {
+      input_password: password
+    });
+    
+    if (error) {
+      console.log('Supabase admin auth not configured, using client-side verification');
+      return null;
+    }
+    
+    return data === true;
+  } catch (error) {
+    console.log('Supabase admin auth not available, using client-side verification');
+    return null;
+  }
+};
+
+const MINIMUM_ORDERS = 20;
 
 
 
@@ -433,16 +562,70 @@ const BobaOrderApp = () => {
     setShowPasswordModal(true);
   };
 
-  const handlePasswordSubmit = () => {
-    if (passwordInput === ADMIN_PASSWORD) {
+const handlePasswordSubmit = async () => {
+  // Check if locked out
+  if (isLocked) {
+    const remainingTime = Math.ceil((lockoutExpiry - new Date()) / 1000 / 60);
+    alert(`Account is locked. Please try again in ${remainingTime} minute(s).`);
+    return;
+  }
+
+  if (!passwordInput.trim()) {
+    alert('Please enter a password');
+    return;
+  }
+
+  setLoading(true);
+  
+  try {
+    // Try Supabase authentication first
+    let isValid = await verifyWithSupabase(passwordInput);
+    
+    // If Supabase auth not available, use client-side verification
+    if (isValid === null) {
+      isValid = await verifyAdminPassword(passwordInput);
+    }
+    
+    if (isValid) {
+      // Reset security state on successful login
+      setLoginAttempts(0);
+      setIsLocked(false);
+      setLockoutExpiry(null);
+      localStorage.removeItem('adminSecurity');
+      
+      // Create secure session
+      createAdminSession();
       setIsAdminMode(true);
       setShowPasswordModal(false);
       setPasswordInput('');
+      
+      console.log('Admin authenticated successfully');
     } else {
-      alert('Incorrect password');
+      // Handle failed login attempt
+      const newAttempts = loginAttempts + 1;
+      setLoginAttempts(newAttempts);
+      
+      if (newAttempts >= SECURITY_CONFIG.MAX_LOGIN_ATTEMPTS) {
+        const lockExpiry = new Date(Date.now() + SECURITY_CONFIG.LOCKOUT_DURATION);
+        setIsLocked(true);
+        setLockoutExpiry(lockExpiry);
+        saveSecurityState(newAttempts, lockExpiry.toISOString());
+        alert(`Too many failed attempts. Account locked for ${SECURITY_CONFIG.LOCKOUT_DURATION / 60000} minutes.`);
+      } else {
+        const remainingAttempts = SECURITY_CONFIG.MAX_LOGIN_ATTEMPTS - newAttempts;
+        saveSecurityState(newAttempts);
+        alert(`Incorrect password. ${remainingAttempts} attempt(s) remaining before lockout.`);
+      }
+      
       setPasswordInput('');
     }
-  };
+  } catch (error) {
+    console.error('Authentication error:', error);
+    alert('Authentication system error. Please try again.');
+  } finally {
+    setLoading(false);
+  }
+};
 
   // Updated toggleOrderStatus function - deletes order when both paid and picked up and reassigns numbers
   const toggleOrderStatus = async (orderId, field) => {
@@ -525,7 +708,7 @@ const BobaOrderApp = () => {
 
   const PaymentInfo = () => {
     const paymentDetails = {
-      venmo: { info: '@megcherry63', note: 'Indicate the payment is for Boba, First 4 digits are 4363' },
+      venmo: { info: '@megcherry63', note: 'Indicate the payment is for Boba, Last 4 digits are 4363' },
       zelle: { info: 'Talk to us at pickup', note: 'Include the payment is for Boba' },
     };
 
@@ -1535,7 +1718,7 @@ const BobaOrderApp = () => {
           <div className="text-2xl font-bold text-red-600 mb-4">Ordering is currently closed.</div>
           <div className="text-gray-700 text-center mb-6">Please check back during the designated ordering period.<br/>Orders are open Tuesdays & Wednesdays 8:30 AM - 1:30 PM.</div>
           <div className="text-2xl font-bold text-blue-600 mb-4">Payment Information:</div>
-          <div className="text-gray-700 text-center mb-6">Venmo handle: @megcherry63<br/>First 4 digits: 4363<br/>If paying Zelle, ask for info during pickup.</div>
+          <div className="text-gray-700 text-center mb-6">Venmo handle: @megcherry63<br/>Last 4 digits: 4363<br/>If paying Zelle, ask for info during pickup.</div>
         </div>
       )}
 
