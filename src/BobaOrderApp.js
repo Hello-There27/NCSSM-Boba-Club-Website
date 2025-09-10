@@ -180,7 +180,6 @@ const MINIMUM_ORDERS = 20;
     testConnection();
     loadOrdersFromDatabase();
     loadOrderStats();
-    checkExistingSession();
   }, []);
 
   // Auto-delete orders pending for over 15 minutes and clean up local state
