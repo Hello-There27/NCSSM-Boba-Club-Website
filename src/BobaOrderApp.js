@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingCart, Plus, Minus, X, Clock, User, TrendingUp, Shield, Download, Eye, Lock, Wifi, WifiOff } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, X, Clock, User, TrendingUp, Shield, Download, Eye, Lock } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
@@ -38,10 +38,23 @@ const [orderCounter, setOrderCounter] = useState(1);
 const [loading, setLoading] = useState(false);
 const [showAbout, setShowAbout] = useState(false);
 const [showOrderList, setShowOrderList] = useState(false);
-const [connectionStatus, setConnectionStatus] = useState('unknown');
+const [unpaidOrders, setUnpaidOrders] = useState([]);
+const [adminTab, setAdminTab] = useState('active'); // 'active' | 'unpaid'
+const [showEditModal, setShowEditModal] = useState(false);
+const [orderBeingEdited, setOrderBeingEdited] = useState(null);
+const [editForm, setEditForm] = useState({
+  category: '',
+  flavor: '',
+  teaBase: '',
+  size: 'Regular',
+  iceLevel: '50%',
+  sugarLevel: '100%',
+  toppings: [],
+  crystalBoba: false,
+  quantity: 1,
+});
 
 // Enhanced security state
-const [adminSession, setAdminSession] = useState(null);
 const [loginAttempts, setLoginAttempts] = useState(0);
 const [isLocked, setIsLocked] = useState(false);
 const [lockoutExpiry, setLockoutExpiry] = useState(null);
@@ -81,44 +94,7 @@ const saveSecurityState = (attempts, expiry = null) => {
   localStorage.setItem('adminSecurity', JSON.stringify(securityData));
 };
 
-const checkExistingSession = () => {
-  try {
-    const sessionData = JSON.parse(localStorage.getItem('adminSession') || '{}');
-    if (sessionData.token && sessionData.expiry) {
-      const expiryDate = new Date(sessionData.expiry);
-      if (expiryDate > new Date()) {
-        setAdminSession(sessionData);
-        setIsAdminMode(true);
-      } else {
-        localStorage.removeItem('adminSession');
-      }
-    }
-  } catch (error) {
-    console.error('Error checking session:', error);
-  }
-};
-
-const createAdminSession = () => {
-  const sessionToken = crypto.getRandomValues(new Uint8Array(32));
-  const tokenHex = Array.from(sessionToken).map(b => b.toString(16).padStart(2, '0')).join('');
-  const expiry = new Date(Date.now() + SECURITY_CONFIG.SESSION_DURATION);
-  
-  const session = {
-    token: tokenHex,
-    expiry: expiry.toISOString(),
-    created: new Date().toISOString()
-  };
-  
-  setAdminSession(session);
-  localStorage.setItem('adminSession', JSON.stringify(session));
-  return session;
-};
-
-const clearAdminSession = () => {
-  setAdminSession(null);
-  setIsAdminMode(false);
-  localStorage.removeItem('adminSession');
-};
+// Removed unused admin session helpers (create/check/clear)
 
 // Backend authentication function
 const verifyAdminPassword = async (password) => {
@@ -177,74 +153,38 @@ const MINIMUM_ORDERS = 20;
 
   // Load orders and stats when component mounts
   useEffect(() => {
-    testConnection();
+    // Daily cleanup of legacy orders before loading
+    deleteLegacyOrders();
     loadOrdersFromDatabase();
     loadOrderStats();
+    loadUnpaidFromDatabase();
   }, []);
 
-  // Auto-delete orders pending for over 15 minutes and clean up local state
+  // Check after 10 PM to archive today's unpaid orders into unpaid_orders table
   useEffect(() => {
-    const cleanup = async () => {
-      const { error } = await supabase
-        .from('orders')
-        .delete()
-        .lt('timestamp', new Date(Date.now() - 15 * 60 * 1000).toISOString())
-        .is('paid', false)
-        .is('picked_up', false);
-      
-      if (error) {
-        console.error('Error cleaning up old orders:', error);
-        return;
-      }
-      
-      // Clean up local state
-      setAllOrders(prevOrders => {
+    const checkAndArchive = async () => {
+      try {
         const now = new Date();
-        return prevOrders.filter(order => {
-          if (!order.timestamp || order.paid || order.pickedUp) return true;
-          const orderTime = new Date(order.timestamp);
-          const diffMinutes = (now - orderTime) / 60000;
-          return diffMinutes <= 15;
-        });
-      });
-    };
-    
-    // Run cleanup every minute
-    const interval = setInterval(cleanup, 60000);
-    cleanup(); // Run once when component mounts
-    
-    return () => clearInterval(interval);
-  }, []);
-
-  const testConnection = async () => {
-    setConnectionStatus('testing');
-
-    if (!supabaseUrl || !supabaseKey) {
-      console.error('Missing environment variables.');
-      console.error('❌ Missing Supabase URL or anon key. Check your .env file.');
-      setConnectionStatus('disconnected');
-      return;
-    }
-
-    try {
-      // Call the health_check RPC function
-      const { data, error } = await supabase.rpc('health_check');
-
-      if (error) {
-        console.error('Connection test failed:', error);
-        setConnectionStatus('disconnected');
-        console.error(`Database connection error: ${error.message}`);
-      } else {
-        console.log('✅ Connected to Supabase. Health check result:', data);
-        setConnectionStatus('connected');
-        console.error('✅ Successfully connected to the database!');
+        const archiveKey = `archive_unpaid_${now.getFullYear()}-${now.getMonth()+1}-${now.getDate()}`;
+        const tenPm = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 22, 0, 0, 0);
+        if (now >= tenPm && !localStorage.getItem(archiveKey)) {
+          await archiveTodaysUnpaidOrders();
+          localStorage.setItem(archiveKey, 'done');
+          // Refresh unpaid list
+          await loadUnpaidFromDatabase();
+        }
+      } catch (e) {
+        console.error('Archival check error:', e);
       }
-    } catch (err) {
-      console.error('Unexpected error:', err);
-      console.error(`Failed to connect to database: ${err.message}`);
-      setConnectionStatus('disconnected');
-    }
-  };
+    };
+    const interval = setInterval(checkAndArchive, 60000);
+    checkAndArchive();
+    return () => clearInterval(interval);
+  }, [allOrders]);
+
+  // Removed old 15-minute pending auto-delete logic
+
+  // Removed connection test and status tracking
 
   // Require tea base for tea drinks
   const teaCategories = [
@@ -256,12 +196,37 @@ const MINIMUM_ORDERS = 20;
   // Available tea bases
   const teaBases = ['Black Tea', 'Green Tea'];
 
-  // Load all orders from Supabase
+  // Helpers for daily window (local time)
+  const getTodayBounds = () => {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+    return { startIso: start.toISOString(), endIso: end.toISOString() };
+  };
+
+  const isToday = (isoString) => {
+    if (!isoString) return false;
+    const { startIso, endIso } = getTodayBounds();
+    return isoString >= startIso && isoString < endIso;
+  };
+
+  // Display window bounds: from 8:30 AM local to 10:00 PM local today
+  const getDisplayBounds = () => {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 8, 30, 0, 0);
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 22, 0, 0, 0);
+    return { startIso: start.toISOString(), endIso: end.toISOString() };
+  };
+
+  // Load only today's orders from Supabase
   const loadOrdersFromDatabase = async () => {
+    const { startIso, endIso } = getTodayBounds();
     const { data, error } = await supabase
       .from('orders')
       .select('*')
-      .order('created_at', { ascending: false });
+      .gte('created_at', startIso)
+      .lt('created_at', endIso)
+      .order('created_at', { ascending: true });
 
     if (error) {
       console.error('Error loading orders:', error);
@@ -269,13 +234,11 @@ const MINIMUM_ORDERS = 20;
       return;
     }
 
-    // Keep existing order numbers and data
-    setAllOrders(data || []);
-    
-    // Set the next order counter based on the highest existing order number
-    const maxOrderNumber = (data || []).reduce((max, order) => 
-      Math.max(max, order.order_number || 0), 0);
-    setOrderCounter(maxOrderNumber + 1);
+    // Save state and set the next counter based on sequence
+    const todaysOrders = data || [];
+    setAllOrders(todaysOrders);
+    const maxOrderNumber = todaysOrders.reduce((max, order) => Math.max(max, order.order_number || 0), 0);
+    setOrderCounter(Math.max(1, maxOrderNumber + 1));
   };
 
   // Load order statistics from Supabase
@@ -300,12 +263,116 @@ const MINIMUM_ORDERS = 20;
     }
   };
 
-  // Reassign order numbers sequentially
+  // Reassign order numbers sequentially (in-memory)
   const reassignOrderNumbers = (orders) => {
-    return orders.map((order, index) => ({
-      ...order,
-      order_number: index + 1
-    }));
+    return orders
+      .slice()
+      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+      .map((order, index) => ({ ...order, order_number: index + 1 }));
+  };
+
+  // Persist resequencing for today's orders to the database to avoid gaps/skips
+  const resequenceTodayOrders = async () => {
+    try {
+      const { startIso, endIso } = getTodayBounds();
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .gte('created_at', startIso)
+        .lt('created_at', endIso)
+        .order('created_at', { ascending: true });
+      if (error) {
+        console.error('Error fetching orders for resequencing:', error);
+        return;
+      }
+      const current = data || [];
+      const resequenced = reassignOrderNumbers(current);
+      // Build updates for rows where order_number differs
+      const updates = resequenced.filter((newRow, idx) => (current[idx]?.order_number || 0) !== newRow.order_number)
+        .map(row => ({ id: row.id, order_number: row.order_number }));
+      // Persist updates one by one to keep it simple
+      for (const row of updates) {
+        const { error: updErr } = await supabase
+          .from('orders')
+          .update({ order_number: row.order_number })
+          .eq('id', row.id);
+        if (updErr) {
+          console.error('Error updating order_number:', updErr);
+        }
+      }
+      setAllOrders(resequenced);
+      setOrderCounter(resequenced.length + 1);
+    } catch (e) {
+      console.error('Unexpected resequencing error:', e);
+    }
+  };
+
+  // Daily cleanup: delete legacy orders older than today to keep table clean
+  const deleteLegacyOrders = async () => {
+    try {
+      const { startIso } = getTodayBounds();
+      const { error } = await supabase
+        .from('orders')
+        .delete()
+        .lt('created_at', startIso);
+      if (error) {
+        console.error('Error deleting legacy orders:', error);
+      }
+    } catch (e) {
+      console.error('Unexpected legacy cleanup error:', e);
+    }
+  };
+
+  // Load unpaid_orders table for admin unpaid tab
+  const loadUnpaidFromDatabase = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('unpaid_orders')
+        .select('*')
+        .order('order_date', { ascending: false });
+      if (error) {
+        console.warn('Unpaid table not available or error loading:', error.message);
+        setUnpaidOrders([]);
+        return;
+      }
+      setUnpaidOrders(data || []);
+    } catch (e) {
+      console.error('Error loading unpaid orders:', e);
+    }
+  };
+
+  // Archive today's unpaid orders (paid === false) to unpaid_orders table (name, amount, order date, details)
+  const archiveTodaysUnpaidOrders = async () => {
+    try {
+      const { startIso, endIso } = getTodayBounds();
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .gte('created_at', startIso)
+        .lt('created_at', endIso)
+        .eq('paid', false);
+      if (error) {
+        console.error('Error fetching unpaid orders for archival:', error);
+        return;
+      }
+      const toArchive = (data || []).map(o => ({
+        customer_name: o.customer_name,
+        amount: o.price,
+        order_date: o.created_at,
+        details: `${o.flavor} (${o.category})${o.size ? ' - '+o.size : ''}`,
+      }));
+      if (toArchive.length === 0) return;
+      const { error: insertErr } = await supabase
+        .from('unpaid_orders')
+        .insert(toArchive);
+      if (insertErr) {
+        console.error('Error archiving unpaid orders:', insertErr);
+        return;
+      }
+      console.log(`Archived ${toArchive.length} unpaid orders to unpaid_orders.`);
+    } catch (e) {
+      console.error('Unexpected error archiving unpaid orders:', e);
+    }
   };
 
   // No longer needed - all database operations are done in handleSubmitOrder
@@ -335,7 +402,7 @@ const MINIMUM_ORDERS = 20;
     },
     'Panda Milk Tea': {
       price: 4.75,
-      flavors: ['Panda Special']
+      flavors: ['Normal']
     },
     'Fruit Tea': {
       price: 4.25,
@@ -402,11 +469,11 @@ const MINIMUM_ORDERS = 20;
   };
 
   const toppings = [
-    'Honey Boba', 'Crystal Boba (+20¢)', 'Popping Boba (Mango)', 'Popping Boba (Strawberry)',
+    'Honey Boba', 'Crystal Boba (+30¢)', 'Popping Boba (Mango)', 'Popping Boba (Strawberry)',
     'Popping Boba (Lychee)', 'Popping Boba (Passionfruit)', 'Popping Boba (Blueberry)', 'Popping Boba (Kiwi)', 
     'Popping Boba (Peach)','Mango Stars', 'Strawberry Hearts', 'Green Apple Jelly', 'Lychee Jelly',
-    'Rainbow Jelly', 'Coffee Jelly', 'Red Bean', 'Grass Jelly (+15¢)',
-    'Egg Pudding (+15¢)'
+    'Rainbow Jelly', 'Coffee Jelly', 'Red Bean', 'Grass Jelly (+25¢)',
+    'Egg Pudding (+25¢)'
   ];
 
   const iceLevels = ['No Ice', '25%', '50%', '75%', '100%'];
@@ -450,35 +517,59 @@ const MINIMUM_ORDERS = 20;
     return "Orders open Tuesdays & Wednesdays 8:30 AM - 1:30 PM";
   };
 
-  // Calculate item price based on menu and toppings
-  const calculateItemPrice = (item) => {
+  // Compute item pricing components consistently for breakdowns and totals
+  const getItemPricingComponents = (item) => {
     const categoryInfo = drinkCategories[item.category];
-    if (!categoryInfo) return 0;
-    let basePrice = categoryInfo.price;
-    // Topping pricing (see menu):
-    // - Crystal Boba: $0.20 (should be 20¢)
-    // - Grass Jelly, Egg Pudding: $0.15 (15¢)
-    // - All other toppings: $0.70 (70¢)
+    if (!categoryInfo) {
+      return {
+        basePrice: 0,
+        sizeUpgrade: 0,
+        toppingsPrice: 0,
+        crystalBobaPrice: 0,
+      };
+    }
+    const basePrice = categoryInfo.price;
+    const sizeUpgrade = item.size === 'Large' ? 0.85 : 0;
     let toppingsPrice = 0;
-    item.toppings.forEach(topping => {
+    (item.toppings || []).forEach(topping => {
       if (topping.includes('Crystal Boba')) {
-        toppingsPrice += 0.20;
+        toppingsPrice += 0.30;
       } else if (topping.includes('Grass Jelly') || topping.includes('Egg Pudding')) {
-        toppingsPrice += 0.15;
+        toppingsPrice += 0.25;
       } else {
         toppingsPrice += 0.70;
       }
     });
-    // If crystalBoba is checked as a separate boolean, add it (legacy support)
-    const crystalBobaPrice = item.crystalBoba ? 0.20 : 0;
-    // Size upgrade: Large +$0.85
-    const sizeUpgrade = item.size === 'Large' ? 0.85 : 0;
-    // Bulk discount: 20% off
-    const subtotal = (basePrice + toppingsPrice + crystalBobaPrice + sizeUpgrade) * item.quantity;
-    const discounted = subtotal * 0.8;
-    // Add sales tax per item
-    const taxed = Math.round((discounted * 1.075) * 100) / 100;
-    return taxed;
+    const crystalBobaPrice = item.crystalBoba ? 0.30 : 0;
+    return { basePrice, sizeUpgrade, toppingsPrice, crystalBobaPrice };
+  };
+
+  // Calculate item price (pre-tax). 20% discount applies to drink + size + toppings.
+  const calculateItemPrice = (item) => {
+    const { basePrice, sizeUpgrade, toppingsPrice, crystalBobaPrice } = getItemPricingComponents(item);
+    const subtotalBeforeDiscount = basePrice + sizeUpgrade + toppingsPrice + crystalBobaPrice;
+    const discountedSubtotal = subtotalBeforeDiscount * 0.8;
+    const subtotalPreTax = discountedSubtotal * item.quantity;
+    return Math.round(subtotalPreTax * 100) / 100;
+  };
+
+  // Detailed per-item breakdown (single unit)
+  const getItemBreakdown = (item) => {
+    const { basePrice, sizeUpgrade, toppingsPrice, crystalBobaPrice } = getItemPricingComponents(item);
+    const preDiscount = basePrice + sizeUpgrade + toppingsPrice + crystalBobaPrice;
+    const discount = preDiscount * 0.2;
+    const discounted = preDiscount - discount;
+    const estimatedTax = discounted * 0.075;
+    const itemTotal = discounted + estimatedTax;
+    return {
+      baseAndSize: basePrice + sizeUpgrade,
+      toppingsTotal: toppingsPrice + crystalBobaPrice,
+      preDiscount,
+      discount,
+      discounted,
+      estimatedTax,
+      itemTotal,
+    };
   };
 
   // Updated addToCart function - only updates local state
@@ -493,6 +584,7 @@ const MINIMUM_ORDERS = 20;
     const orderWithId = {
       ...currentOrder,
       id: `temp_${Date.now()}`, // Temporary ID until order is submitted
+      // Store item price pre-tax; tax added at checkout only
       price: calculateItemPrice(currentOrder),
       orderNumber: null, // Will be assigned when submitted
       customerName: 'Pending',
@@ -538,6 +630,7 @@ const MINIMUM_ORDERS = 20;
     setCurrentOrder({ ...currentOrder, toppings: newToppings });
   };
 
+  // Cart subtotal (pre-tax). Items already include 20% discount on drink+size and full-priced toppings
   const getTotalPrice = () => {
     return cart.reduce((sum, item) => sum + item.price, 0);
   };
@@ -550,9 +643,8 @@ const MINIMUM_ORDERS = 20;
     return getSubtotal() * 0.075;
   };
 
-  // Final total includes sales tax (7.5%)
+  // Final total includes sales tax (7.5%) applied once at checkout
   const getFinalTotal = () => {
-    // Add tax after discount
     const subtotal = getSubtotal();
     const tax = subtotal * 0.075;
     return Math.round((subtotal + tax) * 100) / 100;
@@ -593,8 +685,7 @@ const handlePasswordSubmit = async () => {
       setLockoutExpiry(null);
       localStorage.removeItem('adminSecurity');
       
-      // Create secure session
-      createAdminSession();
+      // Enable admin mode after successful authentication
       setIsAdminMode(true);
       setShowPasswordModal(false);
       setPasswordInput('');
@@ -627,83 +718,44 @@ const handlePasswordSubmit = async () => {
   }
 };
 
-  // Updated toggleOrderStatus function - deletes order when both paid and picked up and reassigns numbers
+  // Updated toggleOrderStatus function - no deletion on completion, only status updates
   const toggleOrderStatus = async (orderId, field) => {
     const order = allOrders.find(o => o.id === orderId);
     if (order) {
       const newValue = !order[field];
       const updatedOrder = { ...order, [field]: newValue };
       
-      // Check if both paid and picked up will be true after this update
-      const shouldDelete = updatedOrder.paid && updatedOrder.picked_up;
-      
-      if (shouldDelete) {
-        // Delete order completely from database
-        try {
-          const { error } = await supabase
-            .from('orders')
-            .delete()
-            .eq('id', orderId);
-
-          if (error) {
-            console.error('Error deleting order:', error);
-            alert(`Failed to delete order: ${error.message}`);
-            return;
-          }
-
-          // Remove from local state and reassign order numbers
-          const updatedOrders = allOrders.filter(o => o.id !== orderId);
-          const reorderedOrders = reassignOrderNumbers(updatedOrders);
-          setAllOrders(reorderedOrders);
+      // Update the field in database directly
+      try {
+        const { error } = await supabase
+          .from('orders')
+          .update({ [field]: newValue })
+          .eq('id', orderId);
           
-          // Update total orders count (subtract this order's quantity and price)
-          setTotalOrders(prev => ({
-            count: Math.max(0, prev.count - order.quantity),
-            totalValue: Math.max(0, prev.totalValue - order.price)
-          }));
-          
-          // Update order counter
-          setOrderCounter(reorderedOrders.length + 1);
-          
-          console.log(`Order #${order.order_number} completed and removed from database`);
-          
-        } catch (error) {
-          console.error('Error deleting order:', error);
-          alert(`Failed to delete completed order: ${error.message}`);
-        }
-      } else {
-        // Update the field in database directly
-        try {
-          const { error } = await supabase
-            .from('orders')
-            .update({ [field]: newValue })
-            .eq('id', orderId);
-            
-          if (error) {
-            console.error('Error updating order:', error);
-            alert(`Failed to update order: ${error.message}`);
-            return;
-          }
-          
-          // Update local state
-          setAllOrders(prev => 
-            prev.map(order => 
-              order.id === orderId 
-                ? { ...order, [field]: newValue }
-                : order
-            )
-          );
-        } catch (error) {
+        if (error) {
           console.error('Error updating order:', error);
-          alert(`Failed to update order status: ${error.message}`);
+          alert(`Failed to update order: ${error.message}`);
+          return;
         }
+        
+        // Update local state
+        setAllOrders(prev => 
+          prev.map(order => 
+            order.id === orderId 
+              ? { ...order, [field]: newValue }
+              : order
+          )
+        );
+      } catch (error) {
+        console.error('Error updating order:', error);
+        alert(`Failed to update order status: ${error.message}`);
       }
     }
   };
 
   const getVisibleOrders = () => {
-    // Since completed orders are now deleted, just return all orders
-    return allOrders;
+    const { startIso, endIso } = getDisplayBounds();
+    return allOrders.filter(o => o.created_at >= startIso && o.created_at < endIso);
   };
 
   const PaymentInfo = () => {
@@ -850,8 +902,195 @@ const handlePasswordSubmit = async () => {
     );
   };
 
+  const EditOrderModal = () => {
+    if (!showEditModal || !orderBeingEdited) return null;
+    const currentCategory = editForm.category;
+    const availableFlavors = currentCategory ? (drinkCategories[currentCategory]?.flavors || []) : [];
+    const pricePreview = calculateItemPrice(editForm);
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onMouseDown={(e) => { if (e.target === e.currentTarget) setShowEditModal(false); }}>
+        <div className="bg-white rounded-lg shadow-lg max-w-2xl w-full mx-4 max-h-[85vh] flex flex-col">
+          <div className="flex items-center justify-between px-6 py-4 border-b sticky top-0 bg-white z-10">
+            <h2 className="text-lg font-semibold text-gray-800">Edit Order #{orderBeingEdited.order_number}</h2>
+            <button onClick={() => setShowEditModal(false)} className="p-2 hover:bg-gray-100 rounded-full" aria-label="Close edit dialog">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="px-6 py-4 overflow-y-auto flex-1">
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
+                <select
+                  value={editForm.category}
+                  onChange={(e) => setEditForm({ ...editForm, category: e.target.value, flavor: '', teaBase: teaCategories.includes(e.target.value) ? (editForm.teaBase || 'Black Tea') : '' })}
+                  className="w-full p-3 border border-gray-300 rounded-lg"
+                >
+                  <option value="">Select category</option>
+                  {Object.keys(drinkCategories).map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+
+              {editForm.category && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Flavor</label>
+                  <select
+                    value={editForm.flavor}
+                    onChange={(e) => setEditForm({ ...editForm, flavor: e.target.value })}
+                    className="w-full p-3 border border-gray-300 rounded-lg"
+                  >
+                    <option value="">Select flavor</option>
+                    {availableFlavors.map((flavor) => (
+                      <option key={flavor} value={flavor}>{flavor}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {editForm.category && showTeaBaseOption(editForm.category) && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Tea Base</label>
+                  <select
+                    value={editForm.teaBase}
+                    onChange={(e) => setEditForm({ ...editForm, teaBase: e.target.value })}
+                    className="w-full p-3 border border-gray-300 rounded-lg"
+                  >
+                    {teaBases.map((b) => <option key={b} value={b}>{b}</option>)}
+                  </select>
+                </div>
+              )}
+
+              {editForm.category && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Size</label>
+                  <select
+                    value={editForm.size}
+                    onChange={(e) => setEditForm({ ...editForm, size: e.target.value })}
+                    className="w-full p-3 border border-gray-300 rounded-lg"
+                  >
+                    <option value="Regular">Regular</option>
+                    <option value="Large">Large</option>
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Ice Level</label>
+                <select
+                  value={editForm.iceLevel}
+                  onChange={(e) => setEditForm({ ...editForm, iceLevel: e.target.value })}
+                  className="w-full p-3 border border-gray-300 rounded-lg"
+                >
+                  {iceLevels.map(l => <option key={l} value={l}>{l}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Sugar Level</label>
+                <select
+                  value={editForm.sugarLevel}
+                  onChange={(e) => setEditForm({ ...editForm, sugarLevel: e.target.value })}
+                  className="w-full p-3 border border-gray-300 rounded-lg"
+                >
+                  {sugarLevels.map(l => <option key={l} value={l}>{l}</option>)}
+                </select>
+              </div>
+
+              {editForm.category && (
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Toppings</label>
+                  <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto p-2 border rounded">
+                    {toppings.map(t => (
+                      <label key={t} className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={editForm.toppings.includes(t)}
+                          onChange={(e) => {
+                            const selected = e.target.checked
+                              ? [...editForm.toppings, t]
+                              : editForm.toppings.filter(x => x !== t);
+                            setEditForm({ ...editForm, toppings: selected });
+                          }}
+                        />
+                        <span>{t}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-end justify-between md:col-span-2">
+                <div className="text-sm text-gray-700">Per-item (pre-tax): <span className="font-semibold">${pricePreview.toFixed(2)}</span></div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Quantity</label>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setEditForm({ ...editForm, quantity: Math.max(1, (editForm.quantity || 1) - 1) })} className="px-2 py-1 border rounded" aria-label="Decrease quantity">-</button>
+                    <input type="number" min="1" value={editForm.quantity || 1} onChange={(e) => setEditForm({ ...editForm, quantity: Math.max(1, Number(e.target.value) || 1) })} className="w-16 text-center p-2 border rounded" />
+                    <button onClick={() => setEditForm({ ...editForm, quantity: (editForm.quantity || 1) + 1 })} className="px-2 py-1 border rounded" aria-label="Increase quantity">+</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="px-6 py-4 border-t flex gap-3 sticky bottom-0 bg-white z-10">
+            <button
+              onClick={async () => {
+                try {
+                  // Recalculate price using existing logic with possibly updated quantity
+                  const quantity = Math.max(1, editForm.quantity || orderBeingEdited.quantity || 1);
+                  const perItem = calculateItemPrice({ ...editForm, quantity: 1 });
+                  const newPrice = perItem * quantity;
+                  const updatePayload = {
+                    category: editForm.category,
+                    flavor: editForm.flavor,
+                    tea_base: editForm.teaBase || null,
+                    size: editForm.size,
+                    ice_level: editForm.iceLevel,
+                    sugar_level: editForm.sugarLevel,
+                    toppings: editForm.toppings,
+                    crystal_boba: editForm.crystalBoba || false,
+                    quantity,
+                    price: Math.round(newPrice * 100) / 100,
+                  };
+                  const { error } = await supabase
+                    .from('orders')
+                    .update(updatePayload)
+                    .eq('id', orderBeingEdited.id);
+                  if (error) {
+                    alert(`Failed to update order: ${error.message}`);
+                    return;
+                  }
+                  // Update local state
+                  setAllOrders(prev => prev.map(o => o.id === orderBeingEdited.id ? { ...o, ...updatePayload } : o));
+                  // Update totals if quantity or price changed
+                  setTotalOrders(prev => ({
+                    count: prev.count - (orderBeingEdited.quantity || 1) + (updatePayload.quantity || 1),
+                    totalValue: prev.totalValue - (orderBeingEdited.price || 0) + (updatePayload.price || 0)
+                  }));
+                  setShowEditModal(false);
+                } catch (e) {
+                  console.error('Update error:', e);
+                  alert('Failed to update order.');
+                }
+              }}
+              className="flex-1 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700"
+            >
+              Save Changes
+            </button>
+            <button onClick={() => setShowEditModal(false)} className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-400">Cancel</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const AdminPanel = () => {
     const visibleOrders = getVisibleOrders();
+    const adminSubtotal = visibleOrders.reduce((sum, o) => sum + (o.price || 0), 0);
+    const adminTax = Math.round(adminSubtotal * 0.075 * 100) / 100;
+    const adminTotal = Math.round((adminSubtotal + adminTax) * 100) / 100;
     
     return (
       <div className="max-w-6xl mx-auto p-6 bg-white min-h-screen">
@@ -877,7 +1116,28 @@ const handlePasswordSubmit = async () => {
             </button>
           </div>
         </div>
+        <EditOrderModal />
 
+        {/* Admin tabs */}
+        <div className="mb-4 border-b border-gray-200">
+          <nav className="-mb-px flex gap-6" aria-label="Tabs">
+            <button
+              className={`py-2 px-1 border-b-2 text-sm font-medium ${adminTab === 'active' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
+              onClick={() => setAdminTab('active')}
+            >
+              Active Today
+            </button>
+            <button
+              className={`py-2 px-1 border-b-2 text-sm font-medium ${adminTab === 'unpaid' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
+              onClick={() => setAdminTab('unpaid')}
+            >
+              Unpaid Archive
+            </button>
+          </nav>
+        </div>
+
+        {adminTab === 'active' && (
+        <>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <div className="bg-blue-50 p-6 rounded-lg border border-blue-200">
             <h3 className="text-lg font-semibold text-blue-800">Active Orders</h3>
@@ -888,17 +1148,17 @@ const handlePasswordSubmit = async () => {
             <p className="text-3xl font-bold text-green-600">{totalOrders.count}</p>
           </div>
           <div className="bg-purple-50 p-6 rounded-lg border border-purple-200">
-            <h3 className="text-lg font-semibold text-purple-800">Total Revenue</h3>
-            <p className="text-3xl font-bold text-purple-600">${totalOrders.totalValue.toFixed(2)}</p>
+            <h3 className="text-lg font-semibold text-purple-800">Revenue (incl. tax)</h3>
+            <p className="text-3xl font-bold text-purple-600">${adminTotal.toFixed(2)}</p>
           </div>
         </div>
 
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
           <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
             <h2 className="text-xl font-semibold text-gray-800">
-              Active Orders ({visibleOrders.length})
+              Today's Orders ({visibleOrders.length})
               <span className="text-sm font-normal text-gray-600 ml-2">
-                (Completed orders are automatically removed and numbers reassigned)
+                (Numbers resequenced daily; completed orders are retained)
               </span>
             </h2>
           </div>
@@ -912,9 +1172,11 @@ const handlePasswordSubmit = async () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Qty</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Price</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total (w/ tax)</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payment</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -951,9 +1213,8 @@ const handlePasswordSubmit = async () => {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         {order.quantity}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        ${order.price.toFixed(2)}
-                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${order.price.toFixed(2)}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${(Math.round(order.price * 1.075 * 100) / 100).toFixed(2)}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         <span className={`px-2 py-1 text-xs rounded-full ${
                           order.payment_method === 'venmo' ? 'bg-blue-100 text-blue-800' :
@@ -988,6 +1249,28 @@ const handlePasswordSubmit = async () => {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {new Date(order.created_at).toLocaleString()}
                       </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <button
+                          onClick={() => {
+                            setOrderBeingEdited(order);
+                            setEditForm({
+                              category: order.category || '',
+                              flavor: order.flavor || '',
+                              teaBase: order.tea_base || order.teaBase || '',
+                              size: order.size || 'Regular',
+                              iceLevel: order.ice_level || order.iceLevel || '50%',
+                              sugarLevel: order.sugar_level || order.sugarLevel || '100%',
+                              toppings: order.toppings || [],
+                              crystalBoba: order.crystal_boba || order.crystalBoba || false,
+                              quantity: order.quantity || 1,
+                            });
+                            setShowEditModal(true);
+                          }}
+                          className="text-blue-600 hover:text-blue-800"
+                        >
+                          Edit
+                        </button>
+                      </td>
                     </tr>
                   ))
                 )}
@@ -995,6 +1278,47 @@ const handlePasswordSubmit = async () => {
             </table>
           </div>
         </div>
+        </>
+        )}
+
+        {adminTab === 'unpaid' && (
+          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+            <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
+              <h2 className="text-xl font-semibold text-gray-800">
+                Unpaid Archive ({unpaidOrders.length})
+              </h2>
+              <p className="text-xs text-gray-500">Orders not paid by 10:00 PM are archived here with amount and date.</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order Date</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {unpaidOrders.length === 0 ? (
+                    <tr>
+                      <td colSpan="4" className="px-6 py-4 text-center text-gray-500">No archived unpaid orders</td>
+                    </tr>
+                  ) : (
+                    unpaidOrders.map((row) => (
+                      <tr key={`${row.id}`} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{row.customer_name}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{row.details}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${row.amount?.toFixed ? row.amount.toFixed(2) : Number(row.amount || 0).toFixed(2)}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{new Date(row.order_date).toLocaleString()}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -1135,9 +1459,6 @@ const handlePasswordSubmit = async () => {
         
         // Update UI with saved orders
         if (savedOrders && savedOrders.length > 0) {
-          // Update allOrders
-          setAllOrders(prev => [...savedOrders, ...prev]);
-          
           // Update order counts and totals
           const newItemCount = savedOrders.reduce((sum, order) => sum + (order.quantity || 1), 0);
           const newTotalValue = savedOrders.reduce((sum, order) => sum + order.price, 0);
@@ -1154,8 +1475,10 @@ const handlePasswordSubmit = async () => {
           setCustomerName('');
           setPaymentMethod('');
           
-          // Update order counter
-          setOrderCounter(prev => prev + savedOrders.length);
+          // Resequence today's orders to ensure continuous numbering
+          await resequenceTodayOrders();
+          // Reload today's orders to reflect updated sequence
+          await loadOrdersFromDatabase();
           
           // Show success message and close checkout
           alert('Order submitted successfully!');
@@ -1199,6 +1522,20 @@ const handlePasswordSubmit = async () => {
                       {item.toppings.length > 0 && (
                         <div>Toppings: {item.toppings.join(', ')}</div>
                       )}
+                      {/* Per-item breakdown */}
+                      {(() => {
+                        const bd = getItemBreakdown({ ...item, quantity: 1 });
+                        return (
+                          <div className="mt-1 text-xs text-gray-600 space-y-0.5">
+                            <div>Base+Size: ${bd.baseAndSize.toFixed(2)}</div>
+                            <div>Toppings: ${bd.toppingsTotal.toFixed(2)}</div>
+                            <div>Discount (20%): -${bd.discount.toFixed(2)}</div>
+                            <div>Subtotal after discount: ${bd.discounted.toFixed(2)}</div>
+                            <div>Est. tax (7.5%): ${bd.estimatedTax.toFixed(2)}</div>
+                            <div className="font-medium text-gray-700">Per-item total est.: ${(bd.itemTotal).toFixed(2)}</div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                   <div className="text-right">
@@ -1215,7 +1552,7 @@ const handlePasswordSubmit = async () => {
                 <span>${getTotalPrice().toFixed(2)}</span>
               </div>
               <div className="flex justify-between text-sm text-gray-600">
-                <span>Tax (7.5%):</span>
+                <span>Sales Tax (7.5%):</span>
                 <span>${getSalesTax().toFixed(2)}</span>
               </div>
               <div className="flex justify-between font-medium text-lg text-purple-600 border-t pt-2 mt-2">
@@ -1623,7 +1960,7 @@ const handlePasswordSubmit = async () => {
             {currentOrder.category && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Toppings <span className="text-purple-600 text-xs">(48¢ each with discount, unless noted)</span>
+                  Toppings <span className="text-purple-600 text-xs">(20% discount applies to toppings)</span>
                 </label>
                 <div className="grid grid-cols-2 gap-3">
                   {toppings.map((topping) => (
