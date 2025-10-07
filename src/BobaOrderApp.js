@@ -872,7 +872,8 @@ const handlePasswordSubmit = async () => {
       'Special Topping (+25¢)',
       'Crystal Boba (+30¢)',
       'Quantity',
-      'Price'
+      'Price (Before Tax)',
+      'Total (With Tax)'
     ];
 
     const csvData = visibleOrders.map(order => {
@@ -892,6 +893,9 @@ const handlePasswordSubmit = async () => {
         });
       }
 
+      // Calculate total with tax
+      const priceWithTax = Math.round(order.price * 1.075 * 100) / 100;
+
       return [
         order.order_number,
         order.customer_name || 'Pending',
@@ -906,7 +910,8 @@ const handlePasswordSubmit = async () => {
         specialToppings[0] || '',
         hasCrystalBoba ? 'Yes' : '',
         order.quantity,
-        order.price.toFixed(2)
+        order.price.toFixed(2),
+        priceWithTax.toFixed(2)
       ];
     });
 
