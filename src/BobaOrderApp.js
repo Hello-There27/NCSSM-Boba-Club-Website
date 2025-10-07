@@ -258,7 +258,12 @@ const MINIMUM_ORDERS = 20;
 
       if (data) {
         const count = data.reduce((sum, order) => sum + (order.quantity || 1), 0);
-        const totalValue = data.reduce((sum, order) => sum + (order.price || 0), 0);
+        // Calculate total value including tax (7.5%)
+        const totalValue = data.reduce((sum, order) => {
+          const preTaxPrice = order.price || 0;
+          const withTax = Math.round(preTaxPrice * 1.075 * 100) / 100;
+          return sum + withTax;
+        }, 0);
         setTotalOrders({ count, totalValue });
       }
     } catch (error) {
@@ -1203,8 +1208,8 @@ const handlePasswordSubmit = async () => {
             <p className="text-3xl font-bold text-green-600">{totalOrders.count}</p>
           </div>
           <div className="bg-purple-50 p-6 rounded-lg border border-purple-200">
-            <h3 className="text-lg font-semibold text-purple-800">Revenue (incl. tax)</h3>
-            <p className="text-3xl font-bold text-purple-600">${adminTotal.toFixed(2)}</p>
+            <h3 className="text-lg font-semibold text-purple-800">Total Revenue (incl. tax)</h3>
+            <p className="text-3xl font-bold text-purple-600">${totalOrders.totalValue.toFixed(2)}</p>
           </div>
         </div>
 
@@ -1839,7 +1844,7 @@ const handlePasswordSubmit = async () => {
               </div>
             </div>
             <div className="mt-2 flex justify-between items-center">
-              <span className="text-purple-700">Total Order Value:</span>
+              <span className="text-purple-700">Total Order Value (incl. tax):</span>
               <span className="text-lg font-semibold text-purple-800">${totalOrders.totalValue.toFixed(2)}</span>
             </div>
           </div>
