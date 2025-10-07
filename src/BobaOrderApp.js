@@ -244,9 +244,12 @@ const MINIMUM_ORDERS = 20;
   // Load order statistics from Supabase
   const loadOrderStats = async () => {
     try {
+      const { startIso, endIso } = getTodayBounds();
       const { data, error } = await supabase
         .from('orders')
-        .select('quantity, price');
+        .select('quantity, price')
+        .gte('created_at', startIso)
+        .lt('created_at', endIso);
 
       if (error) {
         console.error('Error loading stats:', error);
@@ -254,8 +257,8 @@ const MINIMUM_ORDERS = 20;
       }
 
       if (data) {
-        const count = data.reduce((sum, order) => sum + order.quantity, 0);
-        const totalValue = data.reduce((sum, order) => sum + order.price, 0);
+        const count = data.reduce((sum, order) => sum + (order.quantity || 1), 0);
+        const totalValue = data.reduce((sum, order) => sum + (order.price || 0), 0);
         setTotalOrders({ count, totalValue });
       }
     } catch (error) {
@@ -338,6 +341,61 @@ const MINIMUM_ORDERS = 20;
       setUnpaidOrders(data || []);
     } catch (e) {
       console.error('Error loading unpaid orders:', e);
+    }
+  };
+
+  // Delete an active order
+  const deleteOrder = async (orderId) => {
+    if (!window.confirm('Are you sure you want to delete this order? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .delete()
+        .eq('id', orderId);
+
+      if (error) {
+        console.error('Error deleting order:', error);
+        alert('Failed to delete order: ' + error.message);
+        return;
+      }
+
+      // Update local state
+      setAllOrders(prev => prev.filter(o => o.id !== orderId));
+      
+      // Reload stats to ensure accuracy
+      await loadOrderStats();
+    } catch (e) {
+      console.error('Error deleting order:', e);
+      alert('An error occurred while deleting the order');
+    }
+  };
+
+  // Delete an unpaid archived order
+  const deleteUnpaidOrder = async (orderId) => {
+    if (!window.confirm('Are you sure you want to delete this unpaid order record? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('unpaid_orders')
+        .delete()
+        .eq('id', orderId);
+
+      if (error) {
+        console.error('Error deleting unpaid order:', error);
+        alert('Failed to delete unpaid order: ' + error.message);
+        return;
+      }
+
+      // Update local state
+      setUnpaidOrders(prev => prev.filter(o => o.id !== orderId));
+    } catch (e) {
+      console.error('Error deleting unpaid order:', e);
+      alert('An error occurred while deleting the unpaid order');
     }
   };
 
@@ -1064,11 +1122,8 @@ const handlePasswordSubmit = async () => {
                   }
                   // Update local state
                   setAllOrders(prev => prev.map(o => o.id === orderBeingEdited.id ? { ...o, ...updatePayload } : o));
-                  // Update totals if quantity or price changed
-                  setTotalOrders(prev => ({
-                    count: prev.count - (orderBeingEdited.quantity || 1) + (updatePayload.quantity || 1),
-                    totalValue: prev.totalValue - (orderBeingEdited.price || 0) + (updatePayload.price || 0)
-                  }));
+                  // Reload stats to ensure accurate count and total
+                  await loadOrderStats();
                   setShowEditModal(false);
                 } catch (e) {
                   console.error('Update error:', e);
@@ -1250,26 +1305,34 @@ const handlePasswordSubmit = async () => {
                         {new Date(order.created_at).toLocaleString()}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        <button
-                          onClick={() => {
-                            setOrderBeingEdited(order);
-                            setEditForm({
-                              category: order.category || '',
-                              flavor: order.flavor || '',
-                              teaBase: order.tea_base || order.teaBase || '',
-                              size: order.size || 'Regular',
-                              iceLevel: order.ice_level || order.iceLevel || '50%',
-                              sugarLevel: order.sugar_level || order.sugarLevel || '100%',
-                              toppings: order.toppings || [],
-                              crystalBoba: order.crystal_boba || order.crystalBoba || false,
-                              quantity: order.quantity || 1,
-                            });
-                            setShowEditModal(true);
-                          }}
-                          className="text-blue-600 hover:text-blue-800"
-                        >
-                          Edit
-                        </button>
+                        <div className="flex gap-3">
+                          <button
+                            onClick={() => {
+                              setOrderBeingEdited(order);
+                              setEditForm({
+                                category: order.category || '',
+                                flavor: order.flavor || '',
+                                teaBase: order.tea_base || order.teaBase || '',
+                                size: order.size || 'Regular',
+                                iceLevel: order.ice_level || order.iceLevel || '50%',
+                                sugarLevel: order.sugar_level || order.sugarLevel || '100%',
+                                toppings: order.toppings || [],
+                                crystalBoba: order.crystal_boba || order.crystalBoba || false,
+                                quantity: order.quantity || 1,
+                              });
+                              setShowEditModal(true);
+                            }}
+                            className="text-blue-600 hover:text-blue-800"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => deleteOrder(order.id)}
+                            className="text-red-600 hover:text-red-800"
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -1297,12 +1360,13 @@ const handlePasswordSubmit = async () => {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order Date</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {unpaidOrders.length === 0 ? (
                     <tr>
-                      <td colSpan="4" className="px-6 py-4 text-center text-gray-500">No archived unpaid orders</td>
+                      <td colSpan="5" className="px-6 py-4 text-center text-gray-500">No archived unpaid orders</td>
                     </tr>
                   ) : (
                     unpaidOrders.map((row) => (
@@ -1311,6 +1375,14 @@ const handlePasswordSubmit = async () => {
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{row.details}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${row.amount?.toFixed ? row.amount.toFixed(2) : Number(row.amount || 0).toFixed(2)}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{new Date(row.order_date).toLocaleString()}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          <button
+                            onClick={() => deleteUnpaidOrder(row.id)}
+                            className="text-red-600 hover:text-red-800"
+                          >
+                            Delete
+                          </button>
+                        </td>
                       </tr>
                     ))
                   )}
@@ -1460,13 +1532,8 @@ const handlePasswordSubmit = async () => {
         // Update UI with saved orders
         if (savedOrders && savedOrders.length > 0) {
           // Update order counts and totals
-          const newItemCount = savedOrders.reduce((sum, order) => sum + (order.quantity || 1), 0);
-          const newTotalValue = savedOrders.reduce((sum, order) => sum + order.price, 0);
-          
-          setTotalOrders(prev => ({
-            count: prev.count + newItemCount,
-            totalValue: prev.totalValue + newTotalValue
-          }));
+          // Reload stats to ensure accuracy
+          await loadOrderStats();
           
           // Clear the cart
           setCart([]);
@@ -1646,7 +1713,7 @@ const handlePasswordSubmit = async () => {
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Item</th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Details</th>
-                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Price (incl. tax)</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-100">
@@ -1662,7 +1729,7 @@ const handlePasswordSubmit = async () => {
                       <span> | Add-ons: {order.toppings.join(', ')}</span>
                     )}
                   </td>
-                  <td className="px-4 py-2">${order.price ? order.price.toFixed(2) : ''}</td>
+                  <td className="px-4 py-2">${order.price ? (Math.round(order.price * 1.075 * 100) / 100).toFixed(2) : ''} (incl. tax)</td>
                 </tr>
               ))}
             </tbody>
