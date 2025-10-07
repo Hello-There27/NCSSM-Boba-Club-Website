@@ -1713,7 +1713,7 @@ const handlePasswordSubmit = async () => {
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Item</th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Details</th>
-                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Price (incl. tax)</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-100">
