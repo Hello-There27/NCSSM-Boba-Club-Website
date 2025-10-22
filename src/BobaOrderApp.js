@@ -418,20 +418,43 @@ const MINIMUM_ORDERS = 20;
         console.error('Error fetching unpaid orders for archival:', error);
         return;
       }
-      const toArchive = (data || []).map(o => ({
-        customer_name: o.customer_name,
-        amount: o.price,
-        order_date: o.created_at,
-        details: `${o.flavor} (${o.category})${o.size ? ' - '+o.size : ''}`,
-      }));
+      
+      // Calculate total with tax for each order
+      const toArchive = (data || []).map(o => {
+        const preTaxAmount = o.price || 0;
+        const totalWithTax = Math.round(preTaxAmount * 1.075 * 100) / 100;
+        return {
+          customer_name: o.customer_name,
+          amount: totalWithTax, // Store the tax-inclusive amount
+          order_date: o.created_at,
+          details: `${o.flavor} (${o.category})${o.size ? ' - '+o.size : ''} - Qty: ${o.quantity || 1}`,
+        };
+      });
+
       if (toArchive.length === 0) return;
+      
+      // First try to delete any existing entries for today to prevent duplicates
+      const { error: deleteErr } = await supabase
+        .from('unpaid_orders')
+        .delete()
+        .gte('order_date', startIso)
+        .lt('order_date', endIso);
+      
+      if (deleteErr) {
+        console.error('Error cleaning up existing unpaid orders:', deleteErr);
+        return;
+      }
+
+      // Then insert the new unpaid orders
       const { error: insertErr } = await supabase
         .from('unpaid_orders')
         .insert(toArchive);
+        
       if (insertErr) {
         console.error('Error archiving unpaid orders:', insertErr);
         return;
       }
+      
       console.log(`Archived ${toArchive.length} unpaid orders to unpaid_orders.`);
     } catch (e) {
       console.error('Unexpected error archiving unpaid orders:', e);
@@ -545,7 +568,7 @@ const MINIMUM_ORDERS = 20;
 
   // Toggle this to enable/disable time-based ordering restriction
   // Set to false to always allow ordering (for testing or special events)
-  const ENABLE_ORDER_TIME_RESTRICTION = true;
+  const ENABLE_ORDER_TIME_RESTRICTION = false;
 
   // Only allow ordering during specific days/times if enabled
   const isOrderingOpen = () => {
