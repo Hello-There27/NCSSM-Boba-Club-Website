@@ -168,8 +168,10 @@ const MINIMUM_ORDERS = 20;
         const archiveKey = `archive_unpaid_${now.getFullYear()}-${now.getMonth()+1}-${now.getDate()}`;
         const tenPm = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 22, 0, 0, 0);
         if (now >= tenPm && !localStorage.getItem(archiveKey)) {
+          console.log('Running archival process...');
           await archiveTodaysUnpaidOrders();
           localStorage.setItem(archiveKey, 'done');
+          console.log('Archival complete. Refreshing unpaid list...');
           // Refresh unpaid list
           await loadUnpaidFromDatabase();
         }
@@ -180,7 +182,7 @@ const MINIMUM_ORDERS = 20;
     const interval = setInterval(checkAndArchive, 60000);
     checkAndArchive();
     return () => clearInterval(interval);
-  }, [allOrders]);
+  }, []); // Remove allOrders dependency since it's not needed
 
   // Removed old 15-minute pending auto-delete logic
 
