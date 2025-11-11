@@ -570,7 +570,7 @@ const MINIMUM_ORDERS = 20;
 
   // Toggle this to enable/disable time-based ordering restriction
   // Set to false to always allow ordering (for testing or special events)
-  const ENABLE_ORDER_TIME_RESTRICTION = false;
+  const ENABLE_ORDER_TIME_RESTRICTION = true;
 
   // Only allow ordering during specific days/times if enabled
   const isOrderingOpen = () => {
@@ -581,7 +581,7 @@ const MINIMUM_ORDERS = 20;
     const hour = now.getHours();
     const minute = now.getMinutes();
     // Only allow ordering on Tuesday (2) or Wednesday (3), 8:30am-1:30pm
-    if ((day === 2 || day === 3) && (hour > 8 || (hour === 8 && minute >= 30)) && (hour < 13 || (hour === 13 && minute < 30))) {
+    if ((day === 2 || day === 3) && (hour > 8 || (hour === 8 && minute >= 30)) && (hour < 14 || (hour === 14 && minute < 0))) {
       return true;
     }
     return false;
@@ -596,13 +596,13 @@ const MINIMUM_ORDERS = 20;
     if ((day === 2 || day === 3) && hour >= 8 && hour < 14) {
       if (hour === 8 && minute < 30) {
         return "Opening at 8:30 AM";
-      } else if (hour === 13 && minute >= 30) {
+      } else if (hour === 14 && minute >= 0) {
         return "ORDERS CLOSED - Delivery at 4:45 PM";
       } else {
-        return "COLLECTING ORDERS - Closes 1:30 PM";
+        return "COLLECTING ORDERS - Closes 2:00 PM";
       }
     }
-    return "Orders open Tuesdays & Wednesdays 8:30 AM - 1:30 PM";
+    return "Orders open Tuesdays & Wednesdays 8:30 AM - 2:00 PM";
   };
 
   // Compute item pricing components consistently for breakdowns and totals
