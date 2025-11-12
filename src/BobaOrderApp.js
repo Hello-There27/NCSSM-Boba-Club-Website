@@ -2,8 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { ShoppingCart, Plus, Minus, X, Clock, User, TrendingUp, Shield, Download, Eye, Lock } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
-const supabaseKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
+// Use environment variables if available, otherwise use fallback values
+// This allows the app to work both in development (localhost) and production
+const supabaseUrl = process.env.REACT_APP_SUPABASE_URL || 'https://ykwpsojpnfqwqtpxtccv.supabase.co';
+const supabaseKey = process.env.REACT_APP_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlrd3Bzb2pwbmZxd3F0cHh0Y2N2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM4NDkxMjEsImV4cCI6MjA2OTQyNTEyMX0.fRAUneAPz1a7krlsU7le7-g4Ub0pogfyqoeNOcGw1RE';
+
+if (!supabaseUrl || !supabaseKey) {
+  console.error('Supabase credentials are missing!');
+}
+
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 const BobaOrderApp = () => {
@@ -42,6 +49,11 @@ const [unpaidOrders, setUnpaidOrders] = useState([]);
 const [adminTab, setAdminTab] = useState('active'); // 'active' | 'unpaid'
 const [showEditModal, setShowEditModal] = useState(false);
 const [orderBeingEdited, setOrderBeingEdited] = useState(null);
+// Time restriction toggle - load from localStorage or default to true
+const [enableOrderTimeRestriction, setEnableOrderTimeRestriction] = useState(() => {
+  const saved = localStorage.getItem('enableOrderTimeRestriction');
+  return saved !== null ? saved === 'true' : true;
+});
 const [editForm, setEditForm] = useState({
   category: '',
   flavor: '',
@@ -162,21 +174,66 @@ const MINIMUM_ORDERS = 20;
 
   // Check after 10 PM to archive today's unpaid orders into unpaid_orders table
   useEffect(() => {
+    let isArchiving = false; // Flag to prevent concurrent archiving
+    
     const checkAndArchive = async () => {
+      // Prevent concurrent execution
+      if (isArchiving) {
+        console.log('Archival already in progress, skipping...');
+        return;
+      }
+      
       try {
         const now = new Date();
         const archiveKey = `archive_unpaid_${now.getFullYear()}-${now.getMonth()+1}-${now.getDate()}`;
+        const archiveInProgressKey = `${archiveKey}_in_progress`;
         const tenPm = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 22, 0, 0, 0);
-        if (now >= tenPm && !localStorage.getItem(archiveKey)) {
-          console.log('Running archival process...');
-          await archiveTodaysUnpaidOrders();
-          localStorage.setItem(archiveKey, 'done');
-          console.log('Archival complete. Refreshing unpaid list...');
-          // Refresh unpaid list
-          await loadUnpaidFromDatabase();
+        
+        // Check if we should archive
+        if (now >= tenPm) {
+          // Check if already archived
+          if (localStorage.getItem(archiveKey)) {
+            return; // Already archived today
+          }
+          
+          // Check if another instance is archiving (with timestamp to handle stale locks)
+          const inProgress = localStorage.getItem(archiveInProgressKey);
+          if (inProgress) {
+            const inProgressTime = parseInt(inProgress, 10);
+            const timeSinceStart = Date.now() - inProgressTime;
+            // If another instance started archiving less than 5 minutes ago, skip
+            if (timeSinceStart < 5 * 60 * 1000) {
+              console.log('Another instance is archiving, skipping...');
+              return;
+            }
+            // Stale lock, clear it
+            localStorage.removeItem(archiveInProgressKey);
+          }
+          
+          // Set in-progress flag atomically
+          localStorage.setItem(archiveInProgressKey, Date.now().toString());
+          isArchiving = true;
+          
+          try {
+            console.log('Running archival process...');
+            await archiveTodaysUnpaidOrders();
+            localStorage.setItem(archiveKey, 'done');
+            console.log('Archival complete. Refreshing unpaid list...');
+            // Refresh unpaid list
+            await loadUnpaidFromDatabase();
+          } finally {
+            // Clear in-progress flag
+            localStorage.removeItem(archiveInProgressKey);
+            isArchiving = false;
+          }
         }
       } catch (e) {
         console.error('Archival check error:', e);
+        // Clear in-progress flag on error
+        const now = new Date();
+        const archiveInProgressKey = `archive_unpaid_${now.getFullYear()}-${now.getMonth()+1}-${now.getDate()}_in_progress`;
+        localStorage.removeItem(archiveInProgressKey);
+        isArchiving = false;
       }
     };
     const interval = setInterval(checkAndArchive, 60000);
@@ -406,7 +463,9 @@ const MINIMUM_ORDERS = 20;
     }
   };
 
-  // Archive today's unpaid orders (paid === false) to unpaid_orders table (name, amount, order date, details)
+  // Archive today's unpaid orders (paid === false AND picked_up === true) to unpaid_orders table
+  // Only archive orders that were actually picked up but not paid (meaning they were ordered/delivered)
+  // Orders that are both unpaid AND not picked up are excluded (they were never actually ordered)
   const archiveTodaysUnpaidOrders = async () => {
     try {
       const { startIso, endIso } = getTodayBounds();
@@ -415,14 +474,24 @@ const MINIMUM_ORDERS = 20;
         .select('*')
         .gte('created_at', startIso)
         .lt('created_at', endIso)
-        .eq('paid', false);
+        .eq('paid', false)
+        .eq('picked_up', true); // Only archive orders that were picked up but not paid
+      
       if (error) {
         console.error('Error fetching unpaid orders for archival:', error);
         return;
       }
       
+      // Filter out any orders that don't meet criteria (defensive check)
+      const validOrders = (data || []).filter(o => o.paid === false && o.picked_up === true);
+      
+      if (validOrders.length === 0) {
+        console.log('No unpaid orders to archive (only archiving orders that were picked up but not paid).');
+        return;
+      }
+      
       // Calculate total with tax for each order
-      const toArchive = (data || []).map(o => {
+      const toArchive = validOrders.map(o => {
         const preTaxAmount = o.price || 0;
         const totalWithTax = Math.round(preTaxAmount * 1.075 * 100) / 100;
         return {
@@ -433,8 +502,6 @@ const MINIMUM_ORDERS = 20;
         };
       });
 
-      if (toArchive.length === 0) return;
-      
       // First try to delete any existing entries for today to prevent duplicates
       const { error: deleteErr } = await supabase
         .from('unpaid_orders')
@@ -457,7 +524,7 @@ const MINIMUM_ORDERS = 20;
         return;
       }
       
-      console.log(`Archived ${toArchive.length} unpaid orders to unpaid_orders.`);
+      console.log(`Archived ${toArchive.length} unpaid orders to unpaid_orders (orders that were picked up but not paid).`);
     } catch (e) {
       console.error('Unexpected error archiving unpaid orders:', e);
     }
@@ -568,35 +635,44 @@ const MINIMUM_ORDERS = 20;
   const sugarLevels = ['0%', '30%', '50%', '70%', '100%'];
 
 
-  // Toggle this to enable/disable time-based ordering restriction
-  // Set to false to always allow ordering (for testing or special events)
-  const ENABLE_ORDER_TIME_RESTRICTION = true;
+  // Toggle function for time restriction (saves to localStorage)
+  const toggleOrderTimeRestriction = () => {
+    const newValue = !enableOrderTimeRestriction;
+    setEnableOrderTimeRestriction(newValue);
+    localStorage.setItem('enableOrderTimeRestriction', newValue.toString());
+    console.log(`Order time restriction ${newValue ? 'enabled' : 'disabled'}`);
+  };
 
   // Only allow ordering during specific days/times if enabled
   const isOrderingOpen = () => {
   // If restriction is off, always allow ordering
-  if (!ENABLE_ORDER_TIME_RESTRICTION) return true;
+  if (!enableOrderTimeRestriction) return true;
     const now = new Date();
     const day = now.getDay();
     const hour = now.getHours();
     const minute = now.getMinutes();
-    // Only allow ordering on Tuesday (2) or Wednesday (3), 8:30am-1:30pm
-    if ((day === 2 || day === 3) && (hour > 8 || (hour === 8 && minute >= 30)) && (hour < 14 || (hour === 14 && minute < 0))) {
+    // Only allow ordering on Tuesday (2) or Wednesday (3), 8:30am-2:00pm
+    if ((day === 2 || day === 3) && (hour > 8 || (hour === 8 && minute >= 30)) && hour < 14) {
       return true;
     }
     return false;
   };
 
   const getOrderingStatus = () => {
+    // If time restriction is disabled, show that ordering is always open
+    if (!enableOrderTimeRestriction) {
+      return "ORDERING OPEN - Time restriction disabled by admin";
+    }
+    
     const now = new Date();
     const day = now.getDay();
     const hour = now.getHours();
     const minute = now.getMinutes();
     
-    if ((day === 2 || day === 3) && hour >= 8 && hour < 14) {
-      if (hour === 8 && minute < 30) {
+    if (day === 2 || day === 3) {
+      if (hour < 8 || (hour === 8 && minute < 30)) {
         return "Opening at 8:30 AM";
-      } else if (hour === 14 && minute >= 0) {
+      } else if (hour >= 14) {
         return "ORDERS CLOSED - Delivery at 4:45 PM";
       } else {
         return "COLLECTING ORDERS - Closes 2:00 PM";
@@ -1191,6 +1267,18 @@ const handlePasswordSubmit = async () => {
           </div>
           <div className="flex gap-3">
             <button
+              onClick={toggleOrderTimeRestriction}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                enableOrderTimeRestriction
+                  ? 'bg-yellow-600 text-white hover:bg-yellow-700'
+                  : 'bg-green-600 text-white hover:bg-green-700'
+              }`}
+              title={enableOrderTimeRestriction ? 'Time restriction is ON - Click to disable' : 'Time restriction is OFF - Click to enable'}
+            >
+              <Clock className="w-4 h-4" />
+              {enableOrderTimeRestriction ? 'Time Restriction ON' : 'Time Restriction OFF'}
+            </button>
+            <button
               onClick={exportToCSV}
               className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
             >
@@ -1482,7 +1570,7 @@ const handlePasswordSubmit = async () => {
           <div className="bg-red-50 p-6 rounded-lg border border-red-200">
             <h2 className="text-2xl font-semibent text-red-800 mb-4">Important Information</h2>
             <ul className="list-disc list-inside space-y-2 text-gray-700">
-              <li>Orders are only accepted during designated time periods (Tuesdays & Wednesdays 8:30 AM - 1:30 PM)</li>
+              <li>Orders are only accepted during designated time periods (Tuesdays & Wednesdays 8:30 AM - 2:00 PM)</li>
               <li>All prices shown include the 20% bulk ordering discount</li>
               <li>Payment must be completed before pickup</li>
               <li>Orders are delivered to campus at approximately 4:45 PM on order days</li>
@@ -1525,43 +1613,149 @@ const handlePasswordSubmit = async () => {
       
       setLoading(true);
       try {
+        // Verify Supabase is properly configured
+        if (!supabaseUrl || !supabaseKey) {
+          throw new Error('Supabase is not properly configured. Please check your environment variables.');
+        }
+        
         const timestamp = new Date().toISOString();
         
         console.log('Current cart state:', cart);
         
         console.log('Current payment method:', paymentMethod);
         
-        // Format all orders for saving
-        const ordersToSave = cart.map((item, index) => ({
-          order_number: orderCounter + index,
-          customer_name: customerName.trim(),
-          payment_method: paymentMethod || 'Not Selected', // Ensure we have a default value
-          category: item.category,
-          flavor: item.flavor,
-          tea_base: item.teaBase || null,
-          size: item.size,
-          ice_level: item.iceLevel || item.ice_level,
-          sugar_level: item.sugarLevel || item.sugar_level,
-          toppings: item.toppings || [],
-          crystal_boba: item.crystalBoba || item.crystal_boba || false,
-          quantity: item.quantity || 1,
-          price: parseFloat(item.price.toFixed(2)),
-          created_at: timestamp,
-          picked_up: false,
-          paid: false
-        }));
+        // Retry logic for handling race conditions with duplicate order numbers
+        const maxRetries = 3;
+        let savedOrders = null;
+        let error = null;
         
-        console.log('Attempting to save orders:', ordersToSave);
-        
-        // Save all orders in a single batch
-        const { data: savedOrders, error } = await supabase
-          .from('orders')
-          .insert(ordersToSave)
-          .select();
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+          // Get the current max order number RIGHT BEFORE inserting to avoid race conditions
+          const { startIso, endIso } = getTodayBounds();
+          
+          let currentOrders = null;
+          let fetchError = null;
+          
+          try {
+            const result = await supabase
+              .from('orders')
+              .select('order_number')
+              .gte('created_at', startIso)
+              .lt('created_at', endIso)
+              .order('order_number', { ascending: false })
+              .limit(1);
+            
+            currentOrders = result.data;
+            fetchError = result.error;
+          } catch (err) {
+            // Handle network errors or other exceptions
+            console.error('Exception fetching current orders:', err);
+            fetchError = err;
+          }
+          
+          // Calculate the next order number based on the current max
+          // If fetch failed, use orderCounter as fallback (from state)
+          let currentMaxOrderNumber = 0;
+          
+          if (fetchError) {
+            console.warn('Error fetching current orders, using fallback order counter:', fetchError);
+            // Use the orderCounter state as a fallback if fetch fails
+            // This ensures orders can still be submitted even if there's a network issue
+            currentMaxOrderNumber = Math.max(0, orderCounter - 1);
+          } else {
+            currentMaxOrderNumber = currentOrders && currentOrders.length > 0 
+              ? (currentOrders[0].order_number || 0) 
+              : 0;
+          }
+          
+          const nextOrderNumber = currentMaxOrderNumber + 1;
+          
+          console.log(`Attempt ${attempt + 1}: Current max order number: ${currentMaxOrderNumber}, Next order number: ${nextOrderNumber}`);
+          
+          // Expand cart items with quantity > 1 into separate orders, each with quantity 1
+          // Each quantity gets its own order number
+          const ordersToSave = [];
+          let orderNumberIndex = 0;
+          
+          cart.forEach((item) => {
+            const quantity = item.quantity || 1;
+            // Recalculate per-item price using calculateItemPrice with quantity 1
+            // This ensures accurate pricing without rounding errors from division
+            const perItemPrice = calculateItemPrice({ ...item, quantity: 1 });
+            
+            // Create a separate order for each quantity
+            for (let i = 0; i < quantity; i++) {
+              ordersToSave.push({
+                order_number: nextOrderNumber + orderNumberIndex,
+                customer_name: customerName.trim(),
+                payment_method: paymentMethod || 'Not Selected', // Ensure we have a default value
+                category: item.category,
+                flavor: item.flavor,
+                tea_base: item.teaBase || null,
+                size: item.size,
+                ice_level: item.iceLevel || item.ice_level,
+                sugar_level: item.sugarLevel || item.sugar_level,
+                toppings: item.toppings || [],
+                crystal_boba: item.crystalBoba || item.crystal_boba || false,
+                quantity: 1, // Each order is quantity 1
+                price: perItemPrice, // Per-item pre-tax price (tax applied later when displaying/calculating totals)
+                created_at: timestamp,
+                picked_up: false,
+                paid: false
+              });
+              orderNumberIndex++;
+            }
+          });
+          
+          console.log('Attempting to save orders:', ordersToSave);
+          
+          // Save all orders in a single batch
+          let result = null;
+          try {
+            result = await supabase
+              .from('orders')
+              .insert(ordersToSave)
+              .select();
+            
+            savedOrders = result.data;
+            error = result.error;
+          } catch (insertErr) {
+            // Handle network errors or exceptions during insert
+            console.error('Exception during insert:', insertErr);
+            error = insertErr;
+            savedOrders = null;
+          }
+          
+          // If successful or not a duplicate key error, break out of retry loop
+          if (!error || (error.code && error.code !== '23505')) {
+            break;
+          }
+          
+          // If it's a duplicate key error and we have retries left, wait a bit and retry
+          if (error.code === '23505' && attempt < maxRetries - 1) {
+            console.log(`Duplicate key error detected, retrying... (attempt ${attempt + 1}/${maxRetries})`);
+            // Wait a small random amount to reduce collision probability
+            await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 200));
+            continue;
+          }
+        }
           
         if (error) {
           console.error('Supabase error details:', error);
-          throw new Error(`Failed to save order: ${error.message} (${error.code})`);
+          
+          // Check if it's a network/fetch error
+          if (error.message && error.message.includes('Failed to fetch')) {
+            throw new Error('Network error: Unable to connect to the server. Please check your internet connection and try again.');
+          }
+          
+          if (error.code === '23505') {
+            throw new Error('Order number conflict detected. Please try submitting again.');
+          }
+          
+          // Handle different error types
+          const errorMessage = error.message || error.toString() || 'Unknown error';
+          const errorCode = error.code || 'NO_CODE';
+          throw new Error(`Failed to save order: ${errorMessage}${errorCode !== 'NO_CODE' ? ` (${errorCode})` : ''}`);
         }
         
         // Update UI with saved orders
@@ -1799,7 +1993,7 @@ const handlePasswordSubmit = async () => {
           <button
             onClick={() => setShowCheckout(true)}
             className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled={cart.length === 0 || (ENABLE_ORDER_TIME_RESTRICTION && !isOrderingOpen())}
+            disabled={cart.length === 0 || (enableOrderTimeRestriction && !isOrderingOpen())}
           >
             <ShoppingCart className="w-4 h-4" />
             Cart ({cart.length})
@@ -1818,7 +2012,7 @@ const handlePasswordSubmit = async () => {
       {/* Always show password modal, but only show order form if time restriction allows */}
       {showPasswordModal && <PasswordModal />}
       {/* Show order form only if ordering is open, or if restriction is disabled */}
-      {(!ENABLE_ORDER_TIME_RESTRICTION || isOrderingOpen()) ? (
+      {(!enableOrderTimeRestriction || isOrderingOpen()) ? (
         <>
           {showPasswordModal && <PasswordModal />}
           {/* ...existing code for order status, stats, and form... */}
@@ -2155,7 +2349,7 @@ const handlePasswordSubmit = async () => {
       ) : (
         <div className="flex flex-col items-center justify-center mt-16">
           <div className="text-2xl font-bold text-red-600 mb-4">Ordering is currently closed.</div>
-          <div className="text-gray-700 text-center mb-6">Please check back during the designated ordering period.<br/>Orders are open Tuesdays & Wednesdays 8:30 AM - 1:30 PM.</div>
+          <div className="text-gray-700 text-center mb-6">Please check back during the designated ordering period.<br/>Orders are open Tuesdays & Wednesdays 8:30 AM - 2:00 PM.</div>
           <div className="text-2xl font-bold text-blue-600 mb-4">Payment Information:</div>
           <div className="text-gray-700 text-center mb-6">Venmo handle: @megcherry63<br/>Last 4 digits: 4363<br/>If paying Zelle, ask for info during pickup.</div>
         </div>
