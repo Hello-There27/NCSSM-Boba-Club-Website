@@ -81,6 +81,8 @@ const SECURITY_CONFIG = {
 };
 
 // Security helper functions
+// Note: loadSecurityState is kept for potential future use but currently not called
+// eslint-disable-next-line no-unused-vars
 const loadSecurityState = () => {
   try {
     const stored = JSON.parse(localStorage.getItem('adminSecurity') || '{}');
@@ -170,7 +172,8 @@ const MINIMUM_ORDERS = 20;
     loadOrdersFromDatabase();
     loadOrderStats();
     loadUnpaidFromDatabase();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Intentionally empty - only run on mount
 
   // Check after 10 PM to archive today's unpaid orders into unpaid_orders table
   useEffect(() => {
@@ -239,7 +242,8 @@ const MINIMUM_ORDERS = 20;
     const interval = setInterval(checkAndArchive, 60000);
     checkAndArchive();
     return () => clearInterval(interval);
-  }, []); // Remove allOrders dependency since it's not needed
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Intentionally empty - functions are stable and don't need to be dependencies
 
   // Removed old 15-minute pending auto-delete logic
 
@@ -263,11 +267,7 @@ const MINIMUM_ORDERS = 20;
     return { startIso: start.toISOString(), endIso: end.toISOString() };
   };
 
-  const isToday = (isoString) => {
-    if (!isoString) return false;
-    const { startIso, endIso } = getTodayBounds();
-    return isoString >= startIso && isoString < endIso;
-  };
+  // Removed unused isToday function
 
   // Display window bounds: from 8:30 AM local to 10:00 PM local today
   const getDisplayBounds = () => {
@@ -887,7 +887,6 @@ const handlePasswordSubmit = async () => {
     const order = allOrders.find(o => o.id === orderId);
     if (order) {
       const newValue = !order[field];
-      const updatedOrder = { ...order, [field]: newValue };
       
       // Update the field in database directly
       try {
@@ -1256,7 +1255,6 @@ const handlePasswordSubmit = async () => {
     const visibleOrders = getVisibleOrders();
     const adminSubtotal = visibleOrders.reduce((sum, o) => sum + (o.price || 0), 0);
     const adminTax = Math.round(adminSubtotal * 0.075 * 100) / 100;
-    const adminTotal = Math.round((adminSubtotal + adminTax) * 100) / 100;
     
     return (
       <div className="max-w-6xl mx-auto p-6 bg-white min-h-screen">
