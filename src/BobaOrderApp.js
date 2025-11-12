@@ -1253,8 +1253,6 @@ const handlePasswordSubmit = async () => {
 
   const AdminPanel = () => {
     const visibleOrders = getVisibleOrders();
-    const adminSubtotal = visibleOrders.reduce((sum, o) => sum + (o.price || 0), 0);
-    const adminTax = Math.round(adminSubtotal * 0.075 * 100) / 100;
     
     return (
       <div className="max-w-6xl mx-auto p-6 bg-white min-h-screen">
