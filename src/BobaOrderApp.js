@@ -49,11 +49,8 @@ const [unpaidOrders, setUnpaidOrders] = useState([]);
 const [adminTab, setAdminTab] = useState('active'); // 'active' | 'unpaid'
 const [showEditModal, setShowEditModal] = useState(false);
 const [orderBeingEdited, setOrderBeingEdited] = useState(null);
-// Time restriction toggle - load from localStorage or default to true
-const [enableOrderTimeRestriction, setEnableOrderTimeRestriction] = useState(() => {
-  const saved = localStorage.getItem('enableOrderTimeRestriction');
-  return saved !== null ? saved === 'true' : true;
-});
+// Time restriction toggle - will be loaded from Supabase
+const [enableOrderTimeRestriction, setEnableOrderTimeRestriction] = useState(true);
 const [editForm, setEditForm] = useState({
   category: '',
   flavor: '',
@@ -172,8 +169,40 @@ const MINIMUM_ORDERS = 20;
     loadOrdersFromDatabase();
     loadOrderStats();
     loadUnpaidFromDatabase();
+    loadTimeRestrictionSetting();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Intentionally empty - only run on mount
+
+  // Subscribe to real-time changes for time restriction setting
+  useEffect(() => {
+    const channel = supabase
+      .channel('settings-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'settings',
+          filter: 'id=eq.1'
+        },
+        (payload) => {
+          // Handle UPDATE and INSERT events
+          if (payload.new && payload.new.enable_order_time_restriction !== undefined) {
+            setEnableOrderTimeRestriction(payload.new.enable_order_time_restriction);
+            console.log('Time restriction setting updated via real-time sync:', payload.new.enable_order_time_restriction);
+          }
+          // Handle DELETE event - reload from database
+          else if (payload.eventType === 'DELETE') {
+            loadTimeRestrictionSetting();
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   // Check after 10 PM to archive today's unpaid orders into unpaid_orders table
   useEffect(() => {
@@ -327,6 +356,75 @@ const MINIMUM_ORDERS = 20;
       }
     } catch (error) {
       console.error('Error loading stats:', error);
+    }
+  };
+
+  // Load time restriction setting from Supabase
+  const loadTimeRestrictionSetting = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('settings')
+        .select('enable_order_time_restriction')
+        .eq('id', 1)
+        .single();
+
+      if (error) {
+        // If table doesn't exist or row doesn't exist, create it with default value
+        if (error.code === 'PGRST116' || error.message.includes('No rows')) {
+          const { error: insertError } = await supabase
+            .from('settings')
+            .insert({ id: 1, enable_order_time_restriction: true });
+          
+          if (insertError) {
+            console.error('Error creating settings row:', insertError);
+            // Fallback to localStorage if Supabase fails
+            const saved = localStorage.getItem('enableOrderTimeRestriction');
+            if (saved !== null) {
+              setEnableOrderTimeRestriction(saved === 'true');
+            }
+          } else {
+            setEnableOrderTimeRestriction(true);
+          }
+        } else {
+          console.error('Error loading time restriction setting:', error);
+          // Fallback to localStorage if Supabase fails
+          const saved = localStorage.getItem('enableOrderTimeRestriction');
+          if (saved !== null) {
+            setEnableOrderTimeRestriction(saved === 'true');
+          }
+        }
+        return;
+      }
+
+      if (data && data.enable_order_time_restriction !== undefined) {
+        setEnableOrderTimeRestriction(data.enable_order_time_restriction);
+      }
+    } catch (error) {
+      console.error('Error loading time restriction setting:', error);
+      // Fallback to localStorage if Supabase fails
+      const saved = localStorage.getItem('enableOrderTimeRestriction');
+      if (saved !== null) {
+        setEnableOrderTimeRestriction(saved === 'true');
+      }
+    }
+  };
+
+  // Save time restriction setting to Supabase
+  const saveTimeRestrictionSetting = async (value) => {
+    try {
+      const { error } = await supabase
+        .from('settings')
+        .upsert({ id: 1, enable_order_time_restriction: value }, { onConflict: 'id' });
+
+      if (error) {
+        console.error('Error saving time restriction setting:', error);
+        // Fallback to localStorage if Supabase fails
+        localStorage.setItem('enableOrderTimeRestriction', value.toString());
+      }
+    } catch (error) {
+      console.error('Error saving time restriction setting:', error);
+      // Fallback to localStorage if Supabase fails
+      localStorage.setItem('enableOrderTimeRestriction', value.toString());
     }
   };
 
@@ -635,11 +733,11 @@ const MINIMUM_ORDERS = 20;
   const sugarLevels = ['0%', '30%', '50%', '70%', '100%'];
 
 
-  // Toggle function for time restriction (saves to localStorage)
-  const toggleOrderTimeRestriction = () => {
+  // Toggle function for time restriction (saves to Supabase for syncing)
+  const toggleOrderTimeRestriction = async () => {
     const newValue = !enableOrderTimeRestriction;
     setEnableOrderTimeRestriction(newValue);
-    localStorage.setItem('enableOrderTimeRestriction', newValue.toString());
+    await saveTimeRestrictionSetting(newValue);
     console.log(`Order time restriction ${newValue ? 'enabled' : 'disabled'}`);
   };
 
